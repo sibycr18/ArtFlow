@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply antialiased text-gray-900;
+}
+
+::-webkit-scrollbar {
+  @apply w-2;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-400;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: rotate(-12deg) translateY(0px);
+  }
+  50% {
+    transform: rotate(-12deg) translateY(-2px);
+  }
+}
+
+.logo-icon {
+  animation: float 3s ease-in-out infinite;
+}
