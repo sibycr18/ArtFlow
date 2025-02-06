@@ -67,16 +67,18 @@ export default function FileItem({ file, projectId }: FileItemProps) {
   return (
     <>
       <div
-        className="group p-4 bg-white/90 backdrop-blur-sm rounded-lg border border-purple-200 hover:border-purple-300 hover:shadow-md transition-all cursor-pointer"
+        className="block bg-white rounded-lg shadow-sm border border-gray-200 p-3 hover:shadow-md transition-shadow"
         onContextMenu={handleContextMenu}
       >
-        <div className="flex items-center space-x-3">
-          <div className="p-2 bg-purple-100 rounded-lg text-purple-700 group-hover:bg-purple-200 group-hover:text-purple-800 transition-colors">
-            <Icon className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="font-medium text-gray-800">{file.name}</h3>
-            <p className="text-xs text-purple-700 mt-1 capitalize font-medium">{file.type}</p>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <div className="p-1.5 bg-indigo-50 rounded-lg">
+              <Icon className="w-5 h-5 text-indigo-600" />
+            </div>
+            <div>
+              <h3 className="font-medium text-gray-900 text-sm line-clamp-1">{file.name}</h3>
+              <p className="text-xs text-gray-500 mt-0.5 capitalize">{file.type}</p>
+            </div>
           </div>
         </div>
       </div>
@@ -111,7 +113,7 @@ export default function FileItem({ file, projectId }: FileItemProps) {
           type="text"
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-200 focus:border-purple-400"
+          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-400"
           placeholder="Enter new name"
           autoFocus
         />

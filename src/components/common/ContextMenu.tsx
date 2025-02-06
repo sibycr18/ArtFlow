@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 
 export interface ContextMenuItem {
   label: string;
@@ -16,25 +17,85 @@ interface ContextMenuProps {
 export default function ContextMenu({ items, position, onClose }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        onClose();
-      }
+  const setPosition = useCallback(() => {
+    if (!menuRef.current) return;
+
+    const menu = menuRef.current;
+    const { innerWidth, innerHeight } = window;
+    const { offsetWidth, offsetHeight } = menu;
+    const { x, y } = position;
+
+    // Calculate position
+    let menuX = x;
+    let menuY = y;
+
+    // Check right boundary
+    if (x + offsetWidth > innerWidth) {
+      menuX = x - offsetWidth;
     }
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [onClose]);
+    // Check bottom boundary
+    if (y + offsetHeight > innerHeight) {
+      menuY = y - offsetHeight;
+    }
 
-  return (
+    // Check left boundary
+    if (menuX < 0) {
+      menuX = 0;
+    }
+
+    // Check top boundary
+    if (menuY < 0) {
+      menuY = 0;
+    }
+
+    menu.style.transform = `translate3d(${menuX}px, ${menuY}px, 0)`;
+  }, [position]);
+
+  useEffect(() => {
+    setPosition();
+    
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+
+    const handleScroll = () => {
+      onClose();
+    };
+
+    const handleResize = () => {
+      onClose();
+    };
+
+    // Add event listeners
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    document.addEventListener('scroll', handleScroll, true);
+    window.addEventListener('resize', handleResize);
+
+    // Cleanup
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+      document.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [onClose, setPosition]);
+
+  return createPortal(
     <div
       ref={menuRef}
-      style={{
-        top: position.y,
-        left: position.x,
+      className="fixed top-0 left-0 bg-white rounded-lg shadow-lg py-1 min-w-[160px] z-[9999] border border-gray-200"
+      style={{ 
+        pointerEvents: 'auto',
+        willChange: 'transform',
       }}
-      className="fixed bg-white rounded-lg shadow-lg py-1 min-w-[160px] z-50 border border-indigo-100"
     >
       {items.map((item, index) => (
         <button
@@ -54,6 +115,7 @@ export default function ContextMenu({ items, position, onClose }: ContextMenuPro
           <span>{item.label}</span>
         </button>
       ))}
-    </div>
+    </div>,
+    document.body
   );
 }
