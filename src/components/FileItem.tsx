@@ -1,21 +1,24 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Folder, File as FileIcon, Pencil, Trash2 } from 'lucide-react';
-import type { Project } from '../types';
+import { File as FileIcon, Image, PenSquare, Pencil, Trash2 } from 'lucide-react';
 import { useProjects } from '../contexts/ProjectContext';
 import ContextMenu from './common/ContextMenu';
 import ConfirmationDialog from './common/ConfirmationDialog';
 
-interface ProjectCardProps {
-  project: Project;
+interface FileItemProps {
+  file: {
+    id: string;
+    name: string;
+    type: 'canvas' | 'image' | 'document';
+  };
+  projectId: string;
 }
 
-export default function ProjectCard({ project }: ProjectCardProps) {
-  const { deleteProject, renameProject } = useProjects();
+export default function FileItem({ file, projectId }: FileItemProps) {
+  const { deleteFile, renameFile } = useProjects();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
-  const [newName, setNewName] = useState(project.name);
+  const [newName, setNewName] = useState(file.name);
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -23,16 +26,29 @@ export default function ProjectCard({ project }: ProjectCardProps) {
   };
 
   const handleDelete = () => {
-    deleteProject(project.id);
+    deleteFile(projectId, file.id);
     setShowDeleteConfirm(false);
   };
 
   const handleRename = () => {
-    if (newName.trim() && newName !== project.name) {
-      renameProject(project.id, newName);
+    if (newName.trim() && newName !== file.name) {
+      renameFile(projectId, file.id, newName);
     }
     setShowRenameDialog(false);
   };
+
+  const getFileIcon = () => {
+    switch (file.type) {
+      case 'image':
+        return Image;
+      case 'canvas':
+        return PenSquare;
+      default:
+        return FileIcon;
+    }
+  };
+
+  const Icon = getFileIcon();
 
   const contextMenuItems = [
     {
@@ -50,29 +66,20 @@ export default function ProjectCard({ project }: ProjectCardProps) {
 
   return (
     <>
-      <Link 
-        to={`/project/${project.id}`}
-        className="block bg-white rounded-lg shadow-sm border border-gray-200 p-3 hover:shadow-md transition-shadow"
+      <div
+        className="p-4 bg-white rounded-lg border border-gray-200 hover:shadow-md transition-shadow"
         onContextMenu={handleContextMenu}
       >
-        <div className="flex items-start justify-between">
-          <div className="flex items-center space-x-2">
-            <div className="p-1.5 bg-indigo-50 rounded-lg">
-              <Folder className="w-5 h-5 text-indigo-600" />
-            </div>
-            <div>
-              <h3 className="font-medium text-gray-900 text-sm">{project.name}</h3>
-              <div className="flex items-center space-x-1 mt-0.5">
-                <FileIcon className="w-3 h-3 text-gray-400" />
-                <span className="text-xs text-gray-500">
-                  {project.files.length} files
-                </span>
-              </div>
-            </div>
+        <div className="flex items-center space-x-3">
+          <div className="p-2 bg-gray-50 rounded-lg text-gray-600">
+            <Icon className="w-5 h-5" />
           </div>
-          <span className="text-xs text-gray-400">{project.lastModified}</span>
+          <div>
+            <h3 className="font-medium text-gray-900">{file.name}</h3>
+            <p className="text-xs text-gray-500 mt-1">{file.type}</p>
+          </div>
         </div>
-      </Link>
+      </div>
 
       {contextMenu && (
         <ContextMenu
@@ -86,8 +93,8 @@ export default function ProjectCard({ project }: ProjectCardProps) {
         isOpen={showDeleteConfirm}
         onClose={() => setShowDeleteConfirm(false)}
         onConfirm={handleDelete}
-        title="Delete Project"
-        message={`Are you sure you want to delete "${project.name}"? This action cannot be undone.`}
+        title="Delete File"
+        message={`Are you sure you want to delete "${file.name}"? This action cannot be undone.`}
         confirmText="Delete"
         danger={true}
       />
@@ -96,7 +103,7 @@ export default function ProjectCard({ project }: ProjectCardProps) {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="fixed inset-0 bg-black/50" onClick={() => setShowRenameDialog(false)} />
           <div className="relative bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl border border-indigo-100">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Rename Project</h2>
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Rename File</h2>
             <input
               type="text"
               value={newName}

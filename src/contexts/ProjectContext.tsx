@@ -9,6 +9,10 @@ interface ProjectContextType {
   projects: Project[];
   addProject: (name: string) => void;
   addFile: (projectId: string, file: { name: string; type: 'canvas' | 'image' | 'document' }) => void;
+  deleteProject: (id: string) => void;
+  renameProject: (id: string, newName: string) => void;
+  deleteFile: (projectId: string, fileId: string) => void;
+  renameFile: (projectId: string, fileId: string, newName: string) => void;
 }
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
@@ -24,22 +28,61 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       lastModified: 'Just now',
       files: []
     };
+
     setProjects([newProject, ...projects]);
   };
 
   const addFile = (projectId: string, file: { name: string; type: 'canvas' | 'image' | 'document' }) => {
     setProjects(projects.map(project => {
       if (project.id === projectId) {
-        const newFile = {
-          id: `f${project.files.length + 1}`,
-          name: file.name,
-          type: file.type,
-          lastModified: 'Just now'
-        };
         return {
           ...project,
           lastModified: 'Just now',
-          files: [...project.files, newFile]
+          files: [
+            ...project.files,
+            {
+              id: `f${project.files.length + 1}`,
+              ...file
+            }
+          ]
+        };
+      }
+      return project;
+    }));
+  };
+
+  const deleteProject = (id: string) => {
+    setProjects(projects.filter(project => project.id !== id));
+  };
+
+  const renameProject = (id: string, newName: string) => {
+    setProjects(projects.map(project => 
+      project.id === id ? { ...project, name: newName } : project
+    ));
+  };
+
+  const deleteFile = (projectId: string, fileId: string) => {
+    setProjects(projects.map(project => {
+      if (project.id === projectId) {
+        return {
+          ...project,
+          lastModified: 'Just now',
+          files: project.files.filter(file => file.id !== fileId)
+        };
+      }
+      return project;
+    }));
+  };
+
+  const renameFile = (projectId: string, fileId: string, newName: string) => {
+    setProjects(projects.map(project => {
+      if (project.id === projectId) {
+        return {
+          ...project,
+          lastModified: 'Just now',
+          files: project.files.map(file =>
+            file.id === fileId ? { ...file, name: newName } : file
+          )
         };
       }
       return project;
@@ -49,7 +92,11 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const value = {
     projects,
     addProject,
-    addFile
+    addFile,
+    deleteProject,
+    renameProject,
+    deleteFile,
+    renameFile
   };
 
   console.log('ProjectProvider value:', value);
