@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, File, Image, FileText } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { useProjects } from '../../contexts/ProjectContext';
+import { createPortal } from 'react-dom';
 
 const fileTypes = [
   { id: 'document', label: 'Document', icon: FileText },
@@ -36,8 +37,8 @@ export default function CreateFileModal({ onClose }: CreateFileModalProps) {
     onClose();
   };
 
-  return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+  const modal = (
+    <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4">
       <div className="bg-white rounded-lg max-w-md w-full p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-medium text-gray-900">Create New File</h3>
@@ -115,4 +116,6 @@ export default function CreateFileModal({ onClose }: CreateFileModalProps) {
       </div>
     </div>
   );
+
+  return createPortal(modal, document.body);
 }

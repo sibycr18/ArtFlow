@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 
 interface ConfirmationDialogProps {
   isOpen: boolean;
@@ -23,8 +24,8 @@ export default function ConfirmationDialog({
 }: ConfirmationDialogProps) {
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+  const dialog = (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center">
       <div className="fixed inset-0 bg-black/50" onClick={onClose} />
       <div className="relative bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl border border-indigo-100">
         <h2 className="text-xl font-semibold text-gray-900 mb-4">{title}</h2>
@@ -53,4 +54,6 @@ export default function ConfirmationDialog({
       </div>
     </div>
   );
+
+  return createPortal(dialog, document.body);
 }
