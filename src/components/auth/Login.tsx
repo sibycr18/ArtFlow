@@ -88,25 +88,25 @@ export default function Login() {
 
       {/* Floating art elements */}
       <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute top-1/6 left-1/4 transform -translate-x-1/2 -translate-y-1/2 animate-float animation-delay-2000">
+        <div className="art-element float-start absolute top-1/6 left-1/4 translate-left-half translate-up-half">
           <PaintBucket className="w-8 h-8 text-indigo-400 opacity-40" />
         </div>
-        <div className="absolute top-2/3 right-1/5 transform translate-x-1/2 -translate-y-1/2 animate-float animation-delay-3000">
+        <div className="art-element float-start absolute top-2/3 right-1/5 translate-right-half translate-up-half">
           <Brush className="w-10 h-10 text-purple-400 opacity-40" />
         </div>
-        <div className="absolute top-1/4 right-1/4 transform translate-x-1/2 -translate-y-1/2 animate-float">
+        <div className="art-element float-start absolute top-1/4 right-1/4 translate-right-half translate-up-half">
           <Shapes className="w-12 h-12 text-pink-400 opacity-40" />
         </div>
-        <div className="absolute bottom-1/4 right-1/3 transform translate-x-1/2 translate-y-1/2 animate-float animation-delay-1000">
+        <div className="art-element float-start absolute bottom-1/4 right-1/3 translate-right-half translate-down-half">
           <Sparkles className="w-6 h-6 text-indigo-400 opacity-40" />
         </div>
-        <div className="absolute top-1/3 left-1/3 transform -translate-x-1/2 -translate-y-1/2 animate-float animation-delay-4000">
+        <div className="art-element float-start absolute top-1/3 left-1/3 translate-left-half translate-up-half">
           <Pencil className="w-8 h-8 text-purple-400 opacity-40" />
         </div>
-        <div className="absolute bottom-1/3 right-1/4 transform translate-x-1/2 translate-y-1/2 animate-float animation-delay-2000">
+        <div className="art-element float-start absolute bottom-1/3 right-1/4 translate-right-half translate-down-half">
           <Image className="w-10 h-10 text-pink-400 opacity-40" />
         </div>
-        <div className="absolute top-[60%] left-1/4 transform -translate-x-1/2 -translate-y-1/2 animate-float animation-delay-3000">
+        <div className="art-element float-start absolute top-[60%] left-1/4 translate-left-half translate-up-half">
           <Sticker className="w-8 h-8 text-indigo-400 opacity-40" />
         </div>
       </div>

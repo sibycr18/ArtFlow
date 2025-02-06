@@ -22,15 +22,36 @@ body {
   @apply bg-gray-400;
 }
 
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 @keyframes float {
-  0%, 100% {
-    transform: translateY(0) rotate(0);
+  0% {
+    transform: translate(var(--tx), var(--ty)) rotate(0);
   }
   33% {
-    transform: translateY(-15px) rotate(5deg);
+    transform: translate(var(--tx), calc(var(--ty) - 15px)) rotate(5deg);
   }
   66% {
-    transform: translateY(10px) rotate(-3deg);
+    transform: translate(var(--tx), calc(var(--ty) + 10px)) rotate(-3deg);
+  }
+  100% {
+    transform: translate(var(--tx), var(--ty)) rotate(0);
   }
 }
 
@@ -43,15 +64,6 @@ body {
   }
   66% {
     transform: translate(-15px, 15px) scale(0.95);
-  }
-}
-
-@keyframes spin-slow {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
   }
 }
 
@@ -86,3 +98,37 @@ body {
 .animation-delay-4000 {
   animation-delay: 4s;
 }
+
+.art-element {
+  opacity: 0;
+  animation: fadeIn 0.6s ease-out forwards;
+  --tx: 0;
+  --ty: 0;
+}
+
+.art-element.float-start {
+  animation: fadeIn 0.6s ease-out forwards, float 8s ease-in-out infinite;
+}
+
+.translate-left-half {
+  --tx: -50%;
+}
+
+.translate-right-half {
+  --tx: 50%;
+}
+
+.translate-up-half {
+  --ty: -50%;
+}
+
+.translate-down-half {
+  --ty: 50%;
+}
+
+.art-element:nth-child(2) { animation-delay: 0.1s; }
+.art-element:nth-child(3) { animation-delay: 0.2s; }
+.art-element:nth-child(4) { animation-delay: 0.3s; }
+.art-element:nth-child(5) { animation-delay: 0.4s; }
+.art-element:nth-child(6) { animation-delay: 0.5s; }
+.art-element:nth-child(7) { animation-delay: 0.6s; }
