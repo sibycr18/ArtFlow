@@ -1,11 +1,13 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { UserCircle, LogOut, Settings, User } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
+import { useState, useRef, useEffect } from 'react';
+import { UserCircle } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 export default function UserMenu() {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -17,65 +19,40 @@ export default function UserMenu() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const handleSignOut = () => {
+    logout();
+    navigate('/login');
+  };
+
   return (
     <div className="relative" ref={menuRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="p-1.5 rounded-full hover:bg-gray-100 transition-colors"
+        className="focus:outline-none"
       >
-        {user?.avatar ? (
+        {user?.picture ? (
           <img
-            src={user.avatar}
+            src={user.picture}
             alt={user.name}
-            className="w-6 h-6 rounded-full"
+            className="h-9 w-9 rounded-full object-cover border-2 border-gray-200 hover:border-blue-500 transition-colors"
           />
         ) : (
-          <UserCircle className="w-6 h-6 text-gray-600" />
+          <UserCircle className="h-9 w-9 text-gray-600" />
         )}
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
-          <div className="px-4 py-3 border-b border-gray-200">
-            <p className="text-sm font-medium text-gray-900">{user?.name}</p>
-            <p className="text-sm text-gray-500">{user?.email}</p>
+        <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+          <div className="px-4 py-2 border-b border-gray-200">
+            <p className="text-sm font-medium text-gray-900 truncate">{user?.name}</p>
+            <p className="text-xs text-gray-500 truncate">{user?.email}</p>
           </div>
-
-          <div className="py-1">
-            <button
-              onClick={() => {
-                console.log('Profile clicked');
-                setIsOpen(false);
-              }}
-              className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-            >
-              <User className="w-4 h-4 mr-3" />
-              Your Profile
-            </button>
-            <button
-              onClick={() => {
-                console.log('Settings clicked');
-                setIsOpen(false);
-              }}
-              className="flex items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-            >
-              <Settings className="w-4 h-4 mr-3" />
-              Settings
-            </button>
-          </div>
-
-          <div className="border-t border-gray-200 py-1">
-            <button
-              onClick={() => {
-                logout();
-                setIsOpen(false);
-              }}
-              className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-            >
-              <LogOut className="w-4 h-4 mr-3" />
-              Sign out
-            </button>
-          </div>
+          <button
+            onClick={handleSignOut}
+            className="w-full px-4 py-2 text-sm text-left text-red-600 hover:bg-red-50"
+          >
+            Sign out
+          </button>
         </div>
       )}
     </div>

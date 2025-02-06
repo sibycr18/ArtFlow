@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { UserPlus, Users, Shield, Trash2 } from 'lucide-react';
 import ConfirmationModal from './modals/ConfirmationModal';
 import AddMemberModal from './modals/AddMemberModal';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../context/AuthContext';
 
 interface Collaborator {
   id: number;
