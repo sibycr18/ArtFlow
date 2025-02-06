@@ -8,9 +8,15 @@ import { ProjectChatProvider } from '../contexts/ProjectChatContext';
 import { useProjects } from '../contexts/ProjectContext';
 
 export default function ProjectView() {
-  const { projectId } = useParams();
+  const { id } = useParams();
   const { projects } = useProjects();
-  const project = projects.find(p => p.id === projectId);
+  
+  console.log('Current id:', id);
+  console.log('Available projects:', projects);
+  
+  const project = projects.find(p => p.id === id);
+  
+  console.log('Found project:', project);
 
   if (!project) {
     return <div className="p-6">Project not found</div>;
