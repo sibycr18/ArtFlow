@@ -55,7 +55,7 @@ export default function ProjectView() {
                         <FolderOpen className="w-6 h-6 text-purple-600" />
                       </div>
                       <div>
-                        <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
+                        <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent pb-[2px]">
                           {project.name}
                         </h1>
                         <p className="text-sm text-gray-600 mt-1">Last modified: {project.lastModified}</p>
