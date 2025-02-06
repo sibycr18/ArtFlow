@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { X, File, Image, FileText } from 'lucide-react';
-import { useParams } from 'react-router-dom';
 import { useProjects } from '../../contexts/ProjectContext';
 import { createPortal } from 'react-dom';
 
@@ -12,13 +11,13 @@ const fileTypes = [
 
 interface CreateFileModalProps {
   onClose: () => void;
+  projectId: string;
 }
 
-export default function CreateFileModal({ onClose }: CreateFileModalProps) {
+export default function CreateFileModal({ onClose, projectId }: CreateFileModalProps) {
   const [fileName, setFileName] = useState('');
   const [fileType, setFileType] = useState<'document' | 'canvas' | 'image'>('document');
   const [error, setError] = useState('');
-  const { projectId } = useParams();
   const { addFile } = useProjects();
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -29,7 +28,13 @@ export default function CreateFileModal({ onClose }: CreateFileModalProps) {
       return;
     }
 
-    addFile(projectId!, {
+    console.log('Creating file with:', {
+      projectId,
+      fileName: fileName.trim(),
+      fileType
+    });
+
+    addFile(projectId, {
       name: fileName.trim(),
       type: fileType,
     });

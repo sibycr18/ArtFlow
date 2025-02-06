@@ -2,7 +2,11 @@ import React, { useState } from 'react';
 import { Plus } from 'lucide-react';
 import CreateFileModal from './CreateFileModal';
 
-export default function CreateFileButton() {
+interface CreateFileButtonProps {
+  projectId: string;
+}
+
+export default function CreateFileButton({ projectId }: CreateFileButtonProps) {
   const [showModal, setShowModal] = useState(false);
 
   return (
@@ -15,7 +19,7 @@ export default function CreateFileButton() {
         New File
       </button>
 
-      {showModal && <CreateFileModal onClose={() => setShowModal(false)} />}
+      {showModal && <CreateFileModal projectId={projectId} onClose={() => setShowModal(false)} />}
     </>
   );
 }

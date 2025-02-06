@@ -33,9 +33,12 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   };
 
   const addFile = (projectId: string, file: { name: string; type: 'canvas' | 'image' | 'document' }) => {
+    console.log('Adding file:', { projectId, file });
+    console.log('Current projects:', projects);
+
     setProjects(projects.map(project => {
       if (project.id === projectId) {
-        return {
+        const updatedProject = {
           ...project,
           lastModified: 'Just now',
           files: [
@@ -46,6 +49,8 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
             }
           ]
         };
+        console.log('Updated project:', updatedProject);
+        return updatedProject;
       }
       return project;
     }));

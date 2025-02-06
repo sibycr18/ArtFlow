@@ -11,7 +11,10 @@ interface NavLinkProps {
 
 export default function NavLink({ to, icon: Icon, label, isCollapsed }: NavLinkProps) {
   const location = useLocation();
-  const isActive = location.pathname === to;
+  
+  const isActive = to === '/' 
+    ? location.pathname === '/' || location.pathname.startsWith('/project/')
+    : location.pathname.startsWith(to);
 
   return (
     <Link
