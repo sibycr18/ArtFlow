@@ -67,16 +67,16 @@ export default function FileItem({ file, projectId }: FileItemProps) {
   return (
     <>
       <div
-        className="p-4 bg-white rounded-lg border border-gray-200 hover:shadow-md transition-shadow"
+        className="group p-4 bg-white/90 backdrop-blur-sm rounded-lg border border-purple-200 hover:border-purple-300 hover:shadow-md transition-all cursor-pointer"
         onContextMenu={handleContextMenu}
       >
         <div className="flex items-center space-x-3">
-          <div className="p-2 bg-gray-50 rounded-lg text-gray-600">
+          <div className="p-2 bg-purple-100 rounded-lg text-purple-700 group-hover:bg-purple-200 group-hover:text-purple-800 transition-colors">
             <Icon className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="font-medium text-gray-900">{file.name}</h3>
-            <p className="text-xs text-gray-500 mt-1">{file.type}</p>
+            <h3 className="font-medium text-gray-800">{file.name}</h3>
+            <p className="text-xs text-purple-700 mt-1 capitalize font-medium">{file.type}</p>
           </div>
         </div>
       </div>
@@ -99,36 +99,23 @@ export default function FileItem({ file, projectId }: FileItemProps) {
         danger={true}
       />
 
-      {showRenameDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="fixed inset-0 bg-black/50" onClick={() => setShowRenameDialog(false)} />
-          <div className="relative bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl border border-indigo-100">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Rename File</h2>
-            <input
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="Enter new name"
-              autoFocus
-            />
-            <div className="flex justify-end space-x-3">
-              <button
-                onClick={() => setShowRenameDialog(false)}
-                className="px-4 py-2 text-gray-600 hover:bg-indigo-50 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleRename}
-                className="px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg transition-colors"
-              >
-                Rename
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmationDialog
+        isOpen={showRenameDialog}
+        onClose={() => setShowRenameDialog(false)}
+        onConfirm={handleRename}
+        title="Rename File"
+        confirmText="Rename"
+        danger={false}
+      >
+        <input
+          type="text"
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-200 focus:border-purple-400"
+          placeholder="Enter new name"
+          autoFocus
+        />
+      </ConfirmationDialog>
     </>
   );
 }
