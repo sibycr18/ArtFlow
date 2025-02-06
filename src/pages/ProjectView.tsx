@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, FolderOpen } from 'lucide-react';
 import CollaboratorsList from '../components/CollaboratorsList';
@@ -12,6 +12,7 @@ export default function ProjectView() {
   const { id } = useParams();
   const { projects } = useProjects();
   const project = projects.find(p => p.id === id);
+  const [isFileOpen, setIsFileOpen] = useState(false);
 
   if (!project) {
     return (
@@ -102,14 +103,20 @@ export default function ProjectView() {
                         <p className="text-sm text-gray-600 mt-1">Last modified: {project.lastModified}</p>
                       </div>
                     </div>
-                    <CreateFileButton projectId={project.id} />
+                    {!isFileOpen && <CreateFileButton projectId={project.id} />}
                   </div>
                 </div>
 
                 <div className="p-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 auto-rows-max">
                     {project.files.map((file) => (
-                      <FileItem key={file.id} file={file} projectId={project.id} />
+                      <FileItem 
+                        key={file.id} 
+                        file={file} 
+                        projectId={project.id} 
+                        onFileOpen={() => setIsFileOpen(true)}
+                        onFileClose={() => setIsFileOpen(false)}
+                      />
                     ))}
                     {project.files.length === 0 && (
                       <div className="col-span-full flex flex-col items-center justify-center py-12">
@@ -126,15 +133,17 @@ export default function ProjectView() {
               </div>
             </div>
 
-            <div className="lg:w-80">
-              <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg border border-purple-100 p-6 sticky top-8">
-                <CollaboratorsList />
+            {!isFileOpen && (
+              <div className="lg:w-80 flex-shrink-0">
+                <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg border border-purple-100 p-6 lg:sticky lg:top-8">
+                  <CollaboratorsList />
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
 
-        <ProjectChat />
+        {!isFileOpen && <ProjectChat />}
       </div>
     </ProjectChatProvider>
   );
