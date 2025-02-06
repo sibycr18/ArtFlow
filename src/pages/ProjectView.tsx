@@ -37,22 +37,20 @@ export default function ProjectView() {
 
   return (
     <ProjectChatProvider projectId={project.id}>
-      <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50">
-        <div className="max-w-7xl mx-auto px-6 py-8 h-screen flex flex-col">
-          <Link 
-            to="/"
-            className="inline-flex items-center text-sm text-purple-600 hover:text-purple-700 mb-6"
-          >
-            <ArrowLeft className="w-4 h-4 mr-1" />
-            Back to Dashboard
-          </Link>
-
+      <div className="h-screen bg-gradient-to-br from-purple-50 to-blue-50 overflow-hidden">
+        <div className="h-full max-w-7xl mx-auto px-6 py-8 flex flex-col">
           <div className="flex flex-col lg:flex-row gap-6 flex-1 min-h-0">
             <div className="flex-1 flex flex-col min-h-0">
               <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg border border-purple-100 flex flex-col h-full">
                 <div className="p-6 border-b border-purple-100 flex-shrink-0">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
+                      <Link 
+                        to="/"
+                        className="p-2 hover:bg-purple-50 rounded-lg text-purple-600 hover:text-purple-700 transition-colors"
+                      >
+                        <ArrowLeft className="w-5 h-5" />
+                      </Link>
                       <div className="p-3 bg-purple-100 rounded-lg">
                         <FolderOpen className="w-6 h-6 text-purple-600" />
                       </div>
