@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Brush, Eraser, Palette, Trash2, UndoIcon, RedoIcon, Square, Circle, Type, Image as ImageIcon, Download, ChevronDown, Triangle } from 'lucide-react';
+import { Brush, Eraser, Palette, Trash2, UndoIcon, RedoIcon, Square, Circle, Triangle, Download, ChevronDown } from 'lucide-react';
 
 interface CanvasProps {
   width?: number;
@@ -9,7 +9,7 @@ interface CanvasProps {
 const CANVAS_WIDTH = 1920;
 const CANVAS_HEIGHT = 1080;
 
-type Tool = 'brush' | 'eraser' | 'rectangle' | 'circle' | 'triangle' | 'text' | 'image';
+type Tool = 'brush' | 'eraser' | 'rectangle' | 'circle' | 'triangle';
 
 const Canvas: React.FC<CanvasProps> = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -307,8 +307,6 @@ const Canvas: React.FC<CanvasProps> = () => {
                 { icon: Square, tool: 'rectangle' as Tool, label: 'Rectangle' },
                 { icon: Circle, tool: 'circle' as Tool, label: 'Circle' },
                 { icon: Triangle, tool: 'triangle' as Tool, label: 'Triangle' },
-                { icon: Type, tool: 'text' as Tool, label: 'Text' },
-                { icon: ImageIcon, tool: 'image' as Tool, label: 'Image' },
               ].map(({ icon: Icon, tool, label }) => (
                 <button
                   key={tool}
