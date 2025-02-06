@@ -123,7 +123,7 @@ export default function Login() {
                 
               <div className="text-center">
                 <h1 className="text-4xl font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 bg-clip-text text-transparent">
-                  Welcome to ArtFlow - Beta
+                  Welcome to ArtFlow
                 </h1>
                 <p className="mt-3 text-lg text-gray-600">
                   Share and explore amazing artwork
