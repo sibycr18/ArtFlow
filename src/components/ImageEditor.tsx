@@ -146,57 +146,21 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
               <div className="bg-white rounded-lg border border-purple-100 p-3 shadow-sm">
                 <h3 className="text-sm font-medium text-gray-700 mb-3">Transform</h3>
                 <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => rotate('left')}
-                    className="p-2 hover:bg-purple-50 rounded-lg text-gray-600 flex flex-col items-center gap-1"
-                  >
-                    <RotateCcw className="w-5 h-5" />
-                    <span className="text-xs">Rotate Left</span>
-                  </button>
-                  <button
-                    onClick={() => rotate('right')}
-                    className="p-2 hover:bg-purple-50 rounded-lg text-gray-600 flex flex-col items-center gap-1"
-                  >
-                    <RotateCw className="w-5 h-5" />
-                    <span className="text-xs">Rotate Right</span>
-                  </button>
-                  <button
-                    onClick={() => zoom(0.1)}
-                    className="p-2 hover:bg-purple-50 rounded-lg text-gray-600 flex flex-col items-center gap-1"
-                  >
-                    <ZoomIn className="w-5 h-5" />
-                    <span className="text-xs">Zoom In</span>
-                  </button>
-                  <button
-                    onClick={() => zoom(-0.1)}
-                    className="p-2 hover:bg-purple-50 rounded-lg text-gray-600 flex flex-col items-center gap-1"
-                  >
-                    <ZoomOut className="w-5 h-5" />
-                    <span className="text-xs">Zoom Out</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* History */}
-              <div className="bg-white rounded-lg border border-purple-100 p-3 shadow-sm">
-                <h3 className="text-sm font-medium text-gray-700 mb-3">History</h3>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={undo}
-                    disabled={historyIndex <= 0}
-                    className="p-2 hover:bg-purple-50 rounded-lg text-gray-600 flex flex-col items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Undo className="w-5 h-5" />
-                    <span className="text-xs">Undo</span>
-                  </button>
-                  <button
-                    onClick={redo}
-                    disabled={historyIndex >= history.length - 1}
-                    className="p-2 hover:bg-purple-50 rounded-lg text-gray-600 flex flex-col items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Redo className="w-5 h-5" />
-                    <span className="text-xs">Redo</span>
-                  </button>
+                  {[
+                    { icon: RotateCcw, action: () => rotate('left'), label: 'Rotate Left' },
+                    { icon: RotateCw, action: () => rotate('right'), label: 'Rotate Right' },
+                    { icon: ZoomIn, action: () => zoom(0.1), label: 'Zoom In' },
+                    { icon: ZoomOut, action: () => zoom(-0.1), label: 'Zoom Out' }
+                  ].map(({ icon: Icon, action, label }) => (
+                    <button
+                      key={label}
+                      onClick={action}
+                      className="p-2 rounded-lg flex flex-col items-center gap-1 transition-colors hover:bg-purple-50 text-gray-700"
+                    >
+                      <Icon className="w-5 h-5" />
+                      <span className="text-xs">{label}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -204,6 +168,24 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
               <div className="bg-white rounded-lg border border-purple-100 p-3 shadow-sm">
                 <h3 className="text-sm font-medium text-gray-700 mb-3">Actions</h3>
                 <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    <button
+                      onClick={undo}
+                      disabled={historyIndex <= 0}
+                      className="px-4 py-2 bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Undo className="w-4 h-4" />
+                      Undo
+                    </button>
+                    <button
+                      onClick={redo}
+                      disabled={historyIndex >= history.length - 1}
+                      className="px-4 py-2 bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Redo className="w-4 h-4" />
+                      Redo
+                    </button>
+                  </div>
                   <button
                     onClick={downloadImage}
                     className="w-full px-4 py-2 bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 font-medium flex items-center justify-center gap-2"
@@ -211,25 +193,50 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
                     <Download className="w-4 h-4" />
                     Download
                   </button>
+                  <button
+                    onClick={() => {
+                      const canvas = canvasRef.current;
+                      const ctx = canvas?.getContext('2d');
+                      if (!canvas || !ctx) return;
+                      ctx.clearRect(0, 0, canvas.width, canvas.height);
+                      saveToHistory(ctx.getImageData(0, 0, canvas.width, canvas.height));
+                    }}
+                    className="w-full px-4 py-2 bg-red-50 hover:bg-red-100 rounded-lg text-red-600 font-medium flex items-center justify-center gap-2"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Clear Image
+                  </button>
                 </div>
+              </div>
+
+              {/* Scale Control */}
+              <div className="bg-white rounded-lg border border-purple-100 p-3 shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-medium text-gray-700">Scale</h3>
+                  <span className="text-xs font-medium text-gray-600">{Math.round(scale * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="10"
+                  max="300"
+                  value={scale * 100}
+                  onChange={(e) => setScale(parseInt(e.target.value) / 100)}
+                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                />
               </div>
             </div>
           </div>
 
-          {/* Canvas Area */}
-          <div className="flex-1 bg-gray-50 overflow-auto flex items-center justify-center p-8">
-            <div
+          {/* Main Content Area */}
+          <div className="flex-1 min-h-0 relative flex items-center justify-center bg-gray-50">
+            <canvas
+              ref={canvasRef}
+              className="max-w-full max-h-full object-contain"
               style={{
                 transform: `scale(${scale})`,
-                transition: 'transform 0.2s ease-out',
+                transition: 'transform 0.2s ease-in-out'
               }}
-              className="shadow-lg"
-            >
-              <canvas
-                ref={canvasRef}
-                className="max-w-full max-h-full bg-white"
-              />
-            </div>
+            />
           </div>
         </div>
       </div>

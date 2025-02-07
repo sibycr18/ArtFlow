@@ -57,9 +57,9 @@ const Document: React.FC<DocumentProps> = ({ fileName, onClose }) => {
                 <div className="space-y-3">
                   {/* Font Size */}
                   <div>
-                    <div className="flex justify-between mb-1">
-                      <span className="text-xs text-gray-600">Font Size</span>
-                      <span className="text-xs font-medium text-gray-700">{fontSize}px</span>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-gray-700">Font Size</span>
+                      <span className="text-xs font-medium text-gray-600">{fontSize}px</span>
                     </div>
                     <input
                       type="range"
@@ -67,86 +67,67 @@ const Document: React.FC<DocumentProps> = ({ fileName, onClose }) => {
                       max="48"
                       value={fontSize}
                       onChange={(e) => setFontSize(parseInt(e.target.value))}
-                      className="w-full"
+                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
                     />
                   </div>
 
                   {/* Font Style */}
                   <div>
-                    <div className="text-xs text-gray-600 mb-2">Font Style</div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="text-sm font-medium text-gray-700 mb-2">Font Style</div>
+                    <div className="grid grid-cols-3 gap-2">
                       <button
                         onClick={() => setIsBold(!isBold)}
-                        className={`p-2 rounded-lg flex items-center gap-1 transition-colors ${
+                        className={`p-2 rounded-lg flex flex-col items-center gap-1 transition-colors ${
                           isBold ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-purple-50 text-gray-700'
                         }`}
                       >
-                        <Bold className="w-4 h-4" />
+                        <Bold className="w-5 h-5" />
                         <span className="text-xs">Bold</span>
                       </button>
                       <button
                         onClick={() => setIsItalic(!isItalic)}
-                        className={`p-2 rounded-lg flex items-center gap-1 transition-colors ${
+                        className={`p-2 rounded-lg flex flex-col items-center gap-1 transition-colors ${
                           isItalic ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-purple-50 text-gray-700'
                         }`}
                       >
-                        <Italic className="w-4 h-4" />
+                        <Italic className="w-5 h-5" />
                         <span className="text-xs">Italic</span>
                       </button>
                       <button
                         onClick={() => setIsUnderline(!isUnderline)}
-                        className={`p-2 rounded-lg flex items-center gap-1 transition-colors ${
+                        className={`p-2 rounded-lg flex flex-col items-center gap-1 transition-colors ${
                           isUnderline ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-purple-50 text-gray-700'
                         }`}
                       >
-                        <Underline className="w-4 h-4" />
+                        <Underline className="w-5 h-5" />
                         <span className="text-xs">Underline</span>
                       </button>
                     </div>
                   </div>
-                </div>
-              </div>
 
-              {/* Text Alignment */}
-              <div className="bg-white rounded-lg border border-purple-100 p-3 shadow-sm">
-                <h3 className="text-sm font-medium text-gray-700 mb-3">Text Alignment</h3>
-                <div className="grid grid-cols-4 gap-2">
-                  <button
-                    onClick={() => setTextAlign('left')}
-                    className={`p-2 rounded-lg flex flex-col items-center gap-1 transition-colors ${
-                      textAlign === 'left' ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-purple-50 text-gray-700'
-                    }`}
-                  >
-                    <AlignLeft className="w-4 h-4" />
-                    <span className="text-xs">Left</span>
-                  </button>
-                  <button
-                    onClick={() => setTextAlign('center')}
-                    className={`p-2 rounded-lg flex flex-col items-center gap-1 transition-colors ${
-                      textAlign === 'center' ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-purple-50 text-gray-700'
-                    }`}
-                  >
-                    <AlignCenter className="w-4 h-4" />
-                    <span className="text-xs">Center</span>
-                  </button>
-                  <button
-                    onClick={() => setTextAlign('right')}
-                    className={`p-2 rounded-lg flex flex-col items-center gap-1 transition-colors ${
-                      textAlign === 'right' ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-purple-50 text-gray-700'
-                    }`}
-                  >
-                    <AlignRight className="w-4 h-4" />
-                    <span className="text-xs">Right</span>
-                  </button>
-                  <button
-                    onClick={() => setTextAlign('justify')}
-                    className={`p-2 rounded-lg flex flex-col items-center gap-1 transition-colors ${
-                      textAlign === 'justify' ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-purple-50 text-gray-700'
-                    }`}
-                  >
-                    <AlignJustify className="w-4 h-4" />
-                    <span className="text-xs">Justify</span>
-                  </button>
+                  {/* Text Alignment */}
+                  <div>
+                    <div className="text-sm font-medium text-gray-700 mb-2">Text Alignment</div>
+                    <div className="grid grid-cols-4 gap-2">
+                      {[
+                        { icon: AlignLeft, value: 'left', label: 'Left' },
+                        { icon: AlignCenter, value: 'center', label: 'Center' },
+                        { icon: AlignRight, value: 'right', label: 'Right' },
+                        { icon: AlignJustify, value: 'justify', label: 'Justify' }
+                      ].map(({ icon: Icon, value, label }) => (
+                        <button
+                          key={value}
+                          onClick={() => setTextAlign(value)}
+                          className={`p-2 rounded-lg flex flex-col items-center gap-1 transition-colors ${
+                            textAlign === value ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-purple-50 text-gray-700'
+                          }`}
+                        >
+                          <Icon className="w-5 h-5" />
+                          <span className="text-xs">{label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
 
