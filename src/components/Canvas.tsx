@@ -31,8 +31,35 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
   const [showColorPicker, setShowColorPicker] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const baseCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [canvasWidth, setCanvasWidth] = useState(CANVAS_WIDTH);
-  const [canvasHeight, setCanvasHeight] = useState(CANVAS_HEIGHT);
+  const [canvasWidth, setCanvasWidth] = useState(1280);
+  const [canvasHeight, setCanvasHeight] = useState(720);
+
+  useEffect(() => {
+    const updateCanvasSize = () => {
+      if (containerRef.current) {
+        const container = containerRef.current;
+        const maxWidth = container.clientWidth - 64; // 32px padding on each side
+        const maxHeight = container.clientHeight - 64;
+        
+        // Keep 16:9 aspect ratio
+        const aspectRatio = 16 / 9;
+        let width = maxWidth;
+        let height = width / aspectRatio;
+
+        if (height > maxHeight) {
+          height = maxHeight;
+          width = height * aspectRatio;
+        }
+
+        setCanvasWidth(Math.floor(width));
+        setCanvasHeight(Math.floor(height));
+      }
+    };
+
+    updateCanvasSize();
+    window.addEventListener('resize', updateCanvasSize);
+    return () => window.removeEventListener('resize', updateCanvasSize);
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -248,26 +275,6 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
     }
   };
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const updateCanvasSize = () => {
-      const rect = canvas.getBoundingClientRect();
-      setCanvasWidth(rect.width);
-      setCanvasHeight(rect.height);
-    };
-
-    // Initial size
-    updateCanvasSize();
-
-    // Update size when window resizes
-    const resizeObserver = new ResizeObserver(updateCanvasSize);
-    resizeObserver.observe(canvas);
-
-    return () => resizeObserver.disconnect();
-  }, []);
-
   return (
     <div className="fixed inset-0 bg-gradient-to-br from-purple-50 to-blue-50 overflow-hidden">
       <div className="h-screen w-full max-w-[1920px] mx-auto flex flex-col">
@@ -449,8 +456,8 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
           </div>
 
           {/* Canvas Area */}
-          <div className="flex-1 bg-gray-50 overflow-auto">
-            <div className="min-h-full w-full flex items-center justify-center p-8">
+          <div className="flex-1 bg-gray-50 overflow-hidden" ref={containerRef}>
+            <div className="h-full w-full flex items-center justify-center">
               <div className="bg-white shadow-lg rounded-lg">
                 <canvas
                   ref={canvasRef}
