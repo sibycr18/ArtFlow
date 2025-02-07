@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 
 export default function UserMenu() {
   const [isOpen, setIsOpen] = useState(false);
+  const [imgError, setImgError] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -30,11 +31,17 @@ export default function UserMenu() {
         onClick={() => setIsOpen(!isOpen)}
         className="focus:outline-none"
       >
-        {user?.picture ? (
+        {user?.picture && !imgError ? (
           <img
             src={user.picture}
             alt={user.name}
             className="h-9 w-9 rounded-full object-cover border-2 border-gray-200 hover:border-blue-500 transition-colors"
+            referrerPolicy="no-referrer"
+            crossOrigin="anonymous"
+            onError={() => {
+              console.error('Failed to load profile picture:', user.picture);
+              setImgError(true);
+            }}
           />
         ) : (
           <UserCircle className="h-9 w-9 text-gray-600" />
