@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { File as FileIcon, Image, PenSquare, Pencil, Trash2, ArrowLeft } from 'lucide-react';
 import { useProjects } from '../contexts/ProjectContext';
 import ContextMenu from './common/ContextMenu';
 import ConfirmationDialog from './common/ConfirmationDialog';
 import Canvas from './Canvas';
+import Document from './Document';
 
 interface FileItemProps {
   file: {
@@ -22,6 +24,7 @@ export default function FileItem({ file, projectId, onFileOpen, onFileClose }: F
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
   const [showCanvas, setShowCanvas] = useState(false);
+  const [showDocument, setShowDocument] = useState(false);
   const [newName, setNewName] = useState(file.name);
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -45,7 +48,16 @@ export default function FileItem({ file, projectId, onFileOpen, onFileClose }: F
     if (file.type === 'canvas') {
       setShowCanvas(true);
       onFileOpen?.();
+    } else if (file.type === 'document') {
+      setShowDocument(true);
+      onFileOpen?.();
     }
+  };
+
+  const handleClose = () => {
+    setShowCanvas(false);
+    setShowDocument(false);
+    onFileClose?.();
   };
 
   const getFileIcon = () => {
@@ -131,36 +143,60 @@ export default function FileItem({ file, projectId, onFileOpen, onFileClose }: F
         />
       </ConfirmationDialog>
 
-      {showCanvas && (
-        <div className="fixed inset-0 z-50 bg-gradient-to-br from-purple-50 to-blue-50">
-          <div className="flex flex-col h-screen">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-purple-100 bg-white/80 backdrop-blur-sm">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => {
-                    setShowCanvas(false);
-                    onFileClose?.();
-                  }}
-                  className="p-2 hover:bg-purple-50 rounded-lg text-purple-600 hover:text-purple-700 transition-colors"
-                >
-                  <ArrowLeft className="w-5 h-5" />
-                </button>
-                <div className="p-3 bg-purple-100 rounded-lg">
-                  <PenSquare className="w-6 h-6 text-purple-600" />
-                </div>
-                <div>
-                  <h1 className="text-xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
-                    {file.name}
-                  </h1>
-                  <p className="text-sm text-gray-600">Canvas</p>
+      {/* Canvas Modal */}
+      {showCanvas && createPortal(
+        <div className="fixed inset-0 z-50">
+          <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50">
+            <div className="max-w-7xl mx-auto px-6 py-8">
+              <div className="flex flex-col lg:flex-row gap-6">
+                <div className="flex-1">
+                  <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg border border-purple-100">
+                    <div className="flex items-center justify-between px-6 py-4 border-b border-purple-100">
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => {
+                            setShowCanvas(false);
+                            onFileClose?.();
+                          }}
+                          className="p-2 hover:bg-purple-50 rounded-lg text-purple-600 hover:text-purple-700 transition-colors"
+                        >
+                          <ArrowLeft className="w-5 h-5" />
+                        </button>
+                        <div className="p-3 bg-purple-100 rounded-lg">
+                          <PenSquare className="w-6 h-6 text-purple-600" />
+                        </div>
+                        <div>
+                          <h1 className="text-xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
+                            {file.name}
+                          </h1>
+                          <p className="text-sm text-gray-600">Canvas</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex-1 overflow-hidden">
+                      <Canvas />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-            <div className="flex-1 overflow-hidden">
-              <Canvas />
-            </div>
           </div>
-        </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Document Modal */}
+      {showDocument && createPortal(
+        <div className="fixed inset-0 z-50">
+          <Document 
+            fileName={file.name} 
+            onClose={() => {
+              setShowDocument(false);
+              onFileClose?.();
+            }}
+          />
+        </div>,
+        document.body
       )}
     </>
   );
