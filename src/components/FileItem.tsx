@@ -146,12 +146,12 @@ export default function FileItem({ file, projectId, onFileOpen, onFileClose }: F
       {/* Canvas Modal */}
       {showCanvas && createPortal(
         <div className="fixed inset-0 z-50">
-          <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50">
-            <div className="max-w-7xl mx-auto px-6 py-8">
-              <div className="flex flex-col lg:flex-row gap-6">
+          <div className="h-screen bg-gradient-to-br from-purple-50 to-blue-50 overflow-hidden">
+            <div className="h-[85vh] w-full max-w-7xl mx-auto px-6 mt-6">
+              <div className="h-full flex flex-col">
                 <div className="flex-1">
-                  <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg border border-purple-100">
-                    <div className="flex items-center justify-between px-6 py-4 border-b border-purple-100">
+                  <div className="h-full bg-white/80 backdrop-blur-sm rounded-xl shadow-lg border border-purple-100 overflow-hidden">
+                    <div className="flex items-center justify-between px-6 py-3 border-b border-purple-100">
                       <div className="flex items-center gap-3">
                         <button
                           onClick={() => {
@@ -173,7 +173,7 @@ export default function FileItem({ file, projectId, onFileOpen, onFileClose }: F
                         </div>
                       </div>
                     </div>
-                    <div className="flex-1 overflow-hidden">
+                    <div className="h-[calc(100%-48px)]">
                       <Canvas />
                     </div>
                   </div>
