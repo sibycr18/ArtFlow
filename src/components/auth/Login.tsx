@@ -126,7 +126,7 @@ export default function Login() {
                   Welcome to ArtFlow
                 </h1>
                 <p className="mt-3 text-lg text-gray-600">
-                  Create, share and explore amazing artwork
+                  Create and explore amazing artwork
                 </p>
               </div>
             </div>
