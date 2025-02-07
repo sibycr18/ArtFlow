@@ -32,11 +32,11 @@ body {
 }
 
 @keyframes fadeIn {
-  from {
+  0% {
     opacity: 0;
   }
-  to {
-    opacity: 1;
+  100% {
+    opacity: 0.7;
   }
 }
 
@@ -67,6 +67,36 @@ body {
   }
 }
 
+@keyframes blob1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(20px, -30px) scale(1.1); }
+  66% { transform: translate(-15px, 15px) scale(0.95); }
+}
+
+@keyframes blob2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-25px, -20px) scale(0.95); }
+  66% { transform: translate(30px, 10px) scale(1.1); }
+}
+
+@keyframes blob3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(15px, 25px) scale(1.05); }
+  66% { transform: translate(-20px, -15px) scale(0.9); }
+}
+
+@keyframes blob4 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-30px, 15px) scale(1.15); }
+  66% { transform: translate(25px, -25px) scale(0.95); }
+}
+
+@keyframes blob5 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(25px, 30px) scale(0.9); }
+  66% { transform: translate(-15px, -30px) scale(1.1); }
+}
+
 .logo-icon {
   animation: float 3s ease-in-out infinite;
 }
@@ -83,6 +113,16 @@ body {
   animation: blob 15s ease-in-out infinite;
 }
 
+.animate-blob1 { animation: blob1 12s ease-in-out infinite; }
+.animate-blob2 { animation: blob2 15s ease-in-out infinite; }
+.animate-blob3 { animation: blob3 18s ease-in-out infinite; }
+.animate-blob4 { animation: blob4 14s ease-in-out infinite; }
+.animate-blob5 { animation: blob5 16s ease-in-out infinite; }
+
+.animate-fade-in {
+  animation: fadeIn 0.8s ease-out forwards;
+}
+
 .animation-delay-1000 {
   animation-delay: 1s;
 }
@@ -97,6 +137,42 @@ body {
 
 .animation-delay-4000 {
   animation-delay: 4s;
+}
+
+.animation-delay-500 {
+  animation-delay: 0.5s;
+}
+
+.animation-delay-1500 {
+  animation-delay: 1.5s;
+}
+
+.animation-delay-2500 {
+  animation-delay: 2.5s;
+}
+
+.animation-delay-3500 {
+  animation-delay: 3.5s;
+}
+
+.animation-delay-4500 {
+  animation-delay: 4.5s;
+}
+
+.animation-delay-100 {
+  animation-delay: 0.1s;
+}
+
+.animation-delay-300 {
+  animation-delay: 0.3s;
+}
+
+.animation-delay-700 {
+  animation-delay: 0.7s;
+}
+
+.animation-delay-900 {
+  animation-delay: 0.9s;
 }
 
 .art-element {
