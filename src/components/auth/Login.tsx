@@ -79,11 +79,11 @@ export default function Login() {
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 relative overflow-hidden">
       {/* Background gradient blobs */}
       <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute -top-16 -left-16 w-72 h-72 bg-purple-200 rounded-full mix-blend-multiply opacity-0 animate-fade-in animation-delay-300 animate-blob1"></div>
-        <div className="absolute top-0 -left-4 w-56 h-56 bg-indigo-200 rounded-full mix-blend-multiply opacity-0 animate-fade-in animation-delay-100 animate-blob2"></div>
-        <div className="absolute -top-16 -right-16 w-64 h-64 bg-pink-200 rounded-full mix-blend-multiply opacity-0 animate-fade-in animation-delay-700 animate-blob3"></div>
-        <div className="absolute bottom-32 right-8 w-48 h-48 bg-indigo-200 rounded-full mix-blend-multiply opacity-0 animate-fade-in animation-delay-500 animate-blob4"></div>
-        <div className="absolute -bottom-16 left-16 w-60 h-60 bg-purple-200 rounded-full mix-blend-multiply opacity-0 animate-fade-in animation-delay-900 animate-blob5"></div>
+        <div className="absolute -top-16 -left-16 w-72 h-72 bg-purple-200 rounded-full mix-blend-multiply opacity-70 animate-blob"></div>
+        <div className="absolute top-0 -left-4 w-56 h-56 bg-indigo-200 rounded-full mix-blend-multiply opacity-70 animate-blob animation-delay-2000"></div>
+        <div className="absolute -top-16 -right-16 w-64 h-64 bg-pink-200 rounded-full mix-blend-multiply opacity-70 animate-blob animation-delay-4000"></div>
+        <div className="absolute bottom-32 right-8 w-48 h-48 bg-indigo-200 rounded-full mix-blend-multiply opacity-70 animate-blob animation-delay-1000"></div>
+        <div className="absolute -bottom-16 left-16 w-60 h-60 bg-purple-200 rounded-full mix-blend-multiply opacity-70 animate-blob animation-delay-3000"></div>
       </div>
 
       {/* Floating art elements */}
@@ -126,7 +126,7 @@ export default function Login() {
                   Welcome to ArtFlow
                 </h1>
                 <p className="mt-3 text-lg text-gray-600">
-                  Create and explore amazing artwork
+                  Share and explore amazing artwork
                 </p>
               </div>
             </div>
