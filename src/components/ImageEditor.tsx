@@ -1,50 +1,45 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { 
   ArrowLeft, Download, RotateCcw, RotateCw, ZoomIn, ZoomOut, 
-  Maximize2, Minimize2, Crop, Trash2, Undo, Redo 
+  Maximize2, Minimize2, Crop, Trash2, Undo, Redo, Upload 
 } from 'lucide-react';
 
 interface ImageEditorProps {
-  fileName: string;
-  onClose: () => void;
+  fileName?: string;
+  onClose?: () => void;
 }
 
 const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const [scale, setScale] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [originalImage, setOriginalImage] = useState<HTMLImageElement | null>(null);
   const [history, setHistory] = useState<ImageData[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [isCropping, setIsCropping] = useState(false);
+  const [isDrawingCrop, setIsDrawingCrop] = useState(false);
+  const [cropStartPoint, setCropStartPoint] = useState<{ x: number; y: number } | null>(null);
+  const [currentPoint, setCurrentPoint] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
-    console.log('ImageEditor mounted');
     const canvas = canvasRef.current;
-    if (!canvas) {
-      console.log('No canvas ref');
-      return;
-    }
+    if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      console.log('No canvas context');
-      return;
-    }
+    if (!ctx) return;
 
-    console.log('Setting up canvas');
-    // For testing purposes, let's create a sample image
-    canvas.width = 800;
-    canvas.height = 600;
-    ctx.fillStyle = '#f0f0f0';
+    // Set initial canvas size
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    
+    // Clear canvas with white background
+    ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.font = '24px Arial';
-    ctx.fillStyle = '#666';
-    ctx.textAlign = 'center';
-    ctx.fillText('Image Editor', canvas.width / 2, canvas.height / 2);
     
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     saveToHistory(imageData);
-    console.log('Canvas setup complete');
   }, []);
 
   const saveToHistory = (imageData: ImageData) => {
@@ -111,9 +106,221 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
     if (!canvas) return;
 
     const link = document.createElement('a');
-    link.download = fileName;
+    link.download = fileName || 'image';
     link.href = canvas.toDataURL();
     link.click();
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d');
+        if (!canvas || !ctx) return;
+
+        // Set canvas size to match image dimensions
+        canvas.width = img.width;
+        canvas.height = img.height;
+
+        // Clear canvas
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw image
+        ctx.drawImage(img, 0, 0);
+        setOriginalImage(img);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        saveToHistory(imageData);
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const triggerFileInput = () => {
+    fileInputRef.current?.click();
+  };
+
+  const getCanvasPoint = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+
+    // Account for canvas scaling and position
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+
+    return { x, y };
+  };
+
+  const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isCropping) return;
+
+    const point = getCanvasPoint(e);
+    if (!point) return;
+
+    // Save current canvas state to baseCanvas
+    const canvas = canvasRef.current;
+    const baseCanvas = baseCanvasRef.current;
+    if (canvas && baseCanvas) {
+      baseCanvas.width = canvas.width;
+      baseCanvas.height = canvas.height;
+      const baseCtx = baseCanvas.getContext('2d');
+      if (baseCtx) {
+        baseCtx.drawImage(canvas, 0, 0);
+      }
+    }
+
+    setIsDrawingCrop(true);
+    setCropStartPoint(point);
+  };
+
+  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isCropping || !isDrawingCrop || !cropStartPoint) return;
+
+    const point = getCanvasPoint(e);
+    if (!point) return;
+
+    setCurrentPoint(point);
+
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    const baseCanvas = baseCanvasRef.current;
+    if (!ctx || !canvas || !baseCanvas) return;
+
+    // Clear and restore from base canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(baseCanvas, 0, 0);
+
+    // Calculate dimensions (handle negative values)
+    const width = point.x - cropStartPoint.x;
+    const height = point.y - cropStartPoint.y;
+    
+    // Calculate actual coordinates for drawing
+    const startX = width < 0 ? point.x : cropStartPoint.x;
+    const startY = height < 0 ? point.y : cropStartPoint.y;
+    const rectWidth = Math.abs(width);
+    const rectHeight = Math.abs(height);
+
+    // Create semi-transparent overlay
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.beginPath();
+    ctx.rect(0, 0, canvas.width, canvas.height);
+    ctx.rect(startX, startY, rectWidth, rectHeight);
+    ctx.fill('evenodd');
+    
+    // Draw crop rectangle
+    ctx.beginPath();
+    ctx.strokeStyle = '#6200ee';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 5]);
+    ctx.strokeRect(startX, startY, rectWidth, rectHeight);
+    
+    // Draw corner points
+    ctx.setLineDash([]);
+    const points = [
+      { x: startX, y: startY },
+      { x: startX + rectWidth, y: startY },
+      { x: startX + rectWidth, y: startY + rectHeight },
+      { x: startX, y: startY + rectHeight }
+    ];
+    
+    points.forEach(p => {
+      ctx.beginPath();
+      ctx.fillStyle = 'white';
+      ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#6200ee';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    });
+  };
+
+  const handleCanvasMouseUp = () => {
+    if (!isCropping || !isDrawingCrop) return;
+    setIsDrawingCrop(false);
+  };
+
+  const startCropping = () => {
+    setIsCropping(true);
+    setIsDrawingCrop(false);
+    setCropStartPoint(null);
+
+    // Create backup canvas if it doesn't exist
+    if (!baseCanvasRef.current) {
+      const baseCanvas = document.createElement('canvas');
+      baseCanvasRef.current = baseCanvas;
+    }
+  };
+
+  const applyCrop = () => {
+    if (!cropStartPoint || !currentPoint) return;
+
+    const canvas = canvasRef.current;
+    const baseCanvas = baseCanvasRef.current;
+    if (!canvas || !baseCanvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Calculate crop dimensions and position
+    const width = currentPoint.x - cropStartPoint.x;
+    const height = currentPoint.y - cropStartPoint.y;
+    
+    // Get actual crop coordinates and dimensions
+    const cropX = width < 0 ? currentPoint.x : cropStartPoint.x;
+    const cropY = height < 0 ? currentPoint.y : cropStartPoint.y;
+    const cropWidth = Math.abs(width);
+    const cropHeight = Math.abs(height);
+
+    // Create a temporary canvas for the cropped image
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d');
+    if (!tempCtx) return;
+
+    // Set temp canvas size to the crop dimensions
+    tempCanvas.width = cropWidth;
+    tempCanvas.height = cropHeight;
+
+    // Copy the cropped portion from the base canvas (original image)
+    tempCtx.drawImage(
+      baseCanvas,
+      cropX, cropY, cropWidth, cropHeight,  // Source rectangle
+      0, 0, cropWidth, cropHeight           // Destination rectangle
+    );
+
+    // Resize the main canvas
+    canvas.width = cropWidth;
+    canvas.height = cropHeight;
+
+    // Draw the cropped image
+    ctx.drawImage(tempCanvas, 0, 0);
+
+    // Save to history
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    saveToHistory(imageData);
+
+    // Reset cropping state
+    setIsCropping(false);
+    setIsDrawingCrop(false);
+    setCropStartPoint(null);
+    setCurrentPoint(null);
+  };
+
+  const cancelCrop = () => {
+    setIsCropping(false);
+    setIsDrawingCrop(false);
+    setCropStartPoint(null);
+    setCurrentPoint(null);
   };
 
   return (
@@ -150,18 +357,37 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
                     { icon: RotateCcw, action: () => rotate('left'), label: 'Rotate Left' },
                     { icon: RotateCw, action: () => rotate('right'), label: 'Rotate Right' },
                     { icon: ZoomIn, action: () => zoom(0.1), label: 'Zoom In' },
-                    { icon: ZoomOut, action: () => zoom(-0.1), label: 'Zoom Out' }
-                  ].map(({ icon: Icon, action, label }) => (
+                    { icon: ZoomOut, action: () => zoom(-0.1), label: 'Zoom Out' },
+                    { icon: Crop, action: startCropping, label: 'Crop', active: isCropping }
+                  ].map(({ icon: Icon, action, label, active }) => (
                     <button
                       key={label}
                       onClick={action}
-                      className="p-2 rounded-lg flex flex-col items-center gap-1 transition-colors hover:bg-purple-50 text-gray-700"
+                      className={`p-2 rounded-lg flex flex-col items-center gap-1 transition-colors ${
+                        active ? 'bg-purple-100 text-purple-600' : 'hover:bg-purple-50 text-gray-700'
+                      }`}
                     >
                       <Icon className="w-5 h-5" />
                       <span className="text-xs">{label}</span>
                     </button>
                   ))}
                 </div>
+                {isCropping && (
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={applyCrop}
+                      className="flex-1 px-3 py-1.5 bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 text-sm font-medium"
+                    >
+                      Apply
+                    </button>
+                    <button
+                      onClick={cancelCrop}
+                      className="flex-1 px-3 py-1.5 bg-gray-50 hover:bg-gray-100 rounded-lg text-gray-600 text-sm font-medium"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Actions */}
@@ -186,6 +412,20 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
                       Redo
                     </button>
                   </div>
+                  <button
+                    onClick={triggerFileInput}
+                    className="w-full px-4 py-2 bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 font-medium flex items-center justify-center gap-2"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleImageUpload}
+                      accept="image/*"
+                      className="hidden"
+                    />
+                    Upload Image
+                  </button>
                   <button
                     onClick={downloadImage}
                     className="w-full px-4 py-2 bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 font-medium flex items-center justify-center gap-2"
@@ -228,15 +468,22 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
           </div>
 
           {/* Main Content Area */}
-          <div className="flex-1 min-h-0 relative flex items-center justify-center bg-gray-50">
-            <canvas
-              ref={canvasRef}
-              className="max-w-full max-h-full object-contain"
-              style={{
-                transform: `scale(${scale})`,
-                transition: 'transform 0.2s ease-in-out'
-              }}
-            />
+          <div className="flex-1 min-h-0 relative flex items-center justify-center bg-gray-50 p-8">
+            <div className="bg-white shadow-lg rounded-lg border border-purple-100 overflow-hidden h-full w-full flex items-center justify-center relative">
+              <canvas
+                ref={canvasRef}
+                className="max-w-full max-h-full object-contain"
+                style={{
+                  transform: `scale(${scale})`,
+                  transition: 'transform 0.2s ease-in-out',
+                  cursor: isCropping ? 'crosshair' : 'default'
+                }}
+                onMouseDown={handleCanvasMouseDown}
+                onMouseMove={handleCanvasMouseMove}
+                onMouseUp={handleCanvasMouseUp}
+                onMouseLeave={handleCanvasMouseUp}
+              />
+            </div>
           </div>
         </div>
       </div>
