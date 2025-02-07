@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { 
   ArrowLeft, Download, RotateCcw, RotateCw, ZoomIn, ZoomOut, 
-  Maximize2, Minimize2, Crop, Trash2, Undo, Redo, Upload 
+  Maximize2, Minimize2, Crop, Trash2, Undo, Redo, Upload, ChevronDown 
 } from 'lucide-react';
 
 interface ImageEditorProps {
@@ -22,6 +22,10 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
   const [isDrawingCrop, setIsDrawingCrop] = useState(false);
   const [cropStartPoint, setCropStartPoint] = useState<{ x: number; y: number } | null>(null);
   const [currentPoint, setCurrentPoint] = useState<{ x: number; y: number } | null>(null);
+  const [activeFilter, setActiveFilter] = useState<string>('none');
+  const [isFiltersExpanded, setIsFiltersExpanded] = useState(false);
+  const [isTransformExpanded, setIsTransformExpanded] = useState(true);
+  const [isActionsExpanded, setIsActionsExpanded] = useState(true);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -323,6 +327,119 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
     setCurrentPoint(null);
   };
 
+  const applyFilter = (filterType: string) => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!ctx || !canvas) return;
+
+    // Always start with the original image
+    if (originalImage) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(originalImage, 0, 0, canvas.width, canvas.height);
+    }
+
+    // Get image data after restoring original
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+
+    // Apply filter
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+
+      switch (filterType) {
+        case 'grayscale':
+          const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+          data[i] = gray;
+          data[i + 1] = gray;
+          data[i + 2] = gray;
+          break;
+
+        case 'sepia':
+          data[i] = Math.min(255, (r * 0.393) + (g * 0.769) + (b * 0.189));
+          data[i + 1] = Math.min(255, (r * 0.349) + (g * 0.686) + (b * 0.168));
+          data[i + 2] = Math.min(255, (r * 0.272) + (g * 0.534) + (b * 0.131));
+          break;
+
+        case 'invert':
+          data[i] = 255 - r;
+          data[i + 1] = 255 - g;
+          data[i + 2] = 255 - b;
+          break;
+
+        case 'vintage':
+          const avg = (r + g + b) / 3;
+          data[i] = Math.min(255, avg + 40);
+          data[i + 1] = Math.min(255, avg + 20);
+          data[i + 2] = avg;
+          break;
+
+        case 'cool':
+          data[i] = r * 0.9;
+          data[i + 1] = g;
+          data[i + 2] = Math.min(255, b * 1.2);
+          break;
+
+        case 'warm':
+          data[i] = Math.min(255, r * 1.2);
+          data[i + 1] = g;
+          data[i + 2] = b * 0.8;
+          break;
+
+        case 'blur':
+          // Simple box blur
+          if (i % (canvas.width * 4) < canvas.width * 4 - 4 && i > canvas.width * 4) {
+            const avgR = (data[i - 4] + data[i] + data[i + 4] + data[i - canvas.width * 4] + data[i + canvas.width * 4]) / 5;
+            const avgG = (data[i - 3] + data[i + 1] + data[i + 5] + data[i - canvas.width * 4 + 1] + data[i + canvas.width * 4 + 1]) / 5;
+            const avgB = (data[i - 2] + data[i + 2] + data[i + 6] + data[i - canvas.width * 4 + 2] + data[i + canvas.width * 4 + 2]) / 5;
+            data[i] = avgR;
+            data[i + 1] = avgG;
+            data[i + 2] = avgB;
+          }
+          break;
+
+        case 'sharpen':
+          if (i % (canvas.width * 4) < canvas.width * 4 - 4 && i > canvas.width * 4) {
+            data[i] = Math.min(255, Math.max(0, r * 2 - (data[i - 4] + data[i + 4] + data[i - canvas.width * 4] + data[i + canvas.width * 4]) / 4));
+            data[i + 1] = Math.min(255, Math.max(0, g * 2 - (data[i - 3] + data[i + 5] + data[i - canvas.width * 4 + 1] + data[i + canvas.width * 4 + 1]) / 4));
+            data[i + 2] = Math.min(255, Math.max(0, b * 2 - (data[i - 2] + data[i + 6] + data[i - canvas.width * 4 + 2] + data[i + canvas.width * 4 + 2]) / 4));
+          }
+          break;
+
+        case 'high-contrast':
+          const factor = 1.5;
+          data[i] = Math.min(255, Math.max(0, (r - 128) * factor + 128));
+          data[i + 1] = Math.min(255, Math.max(0, (g - 128) * factor + 128));
+          data[i + 2] = Math.min(255, Math.max(0, (b - 128) * factor + 128));
+          break;
+      }
+    }
+
+    // Put the modified image data back
+    ctx.putImageData(imageData, 0, 0);
+
+    // Save to history
+    saveToHistory(imageData);
+  };
+
+  const toggleFilter = (filterType: string) => {
+    // If clicking the active filter, remove it
+    if (activeFilter === filterType) {
+      setActiveFilter('none');
+      applyFilter('none');
+    } else {
+      // Apply new filter
+      setActiveFilter(filterType);
+      applyFilter(filterType);
+    }
+  };
+
+  const handleScaleChange = (value: number) => {
+    const newScale = Math.min(Math.max(value, 10), 200);
+    setScale(newScale / 100);
+  };
+
   return (
     <div className="fixed inset-0 bg-gradient-to-br from-purple-50 to-blue-50 overflow-hidden">
       <div className="h-screen w-full max-w-[1920px] mx-auto flex flex-col">
@@ -349,121 +466,194 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
           {/* Left Toolbar */}
           <div className="w-[280px] bg-white/80 backdrop-blur-sm border-r border-purple-100 flex flex-col overflow-hidden">
             <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+              {/* Filters */}
+              <div className="bg-white rounded-lg border border-purple-100 p-3 shadow-sm">
+                <button 
+                  onClick={() => setIsFiltersExpanded(!isFiltersExpanded)}
+                  className="w-full flex items-center justify-between text-sm font-medium text-gray-700"
+                >
+                  <span>Filters</span>
+                  <ChevronDown 
+                    className={`w-4 h-4 transition-transform ${isFiltersExpanded ? 'transform rotate-180' : ''}`} 
+                  />
+                </button>
+                {isFiltersExpanded && (
+                  <div className="space-y-2 mt-3">
+                    {[
+                      { type: 'grayscale', label: 'Grayscale' },
+                      { type: 'sepia', label: 'Sepia' },
+                      { type: 'invert', label: 'Invert' },
+                      { type: 'vintage', label: 'Vintage' },
+                      { type: 'cool', label: 'Cool' },
+                      { type: 'warm', label: 'Warm' },
+                      { type: 'blur', label: 'Blur' },
+                      { type: 'sharpen', label: 'Sharpen' },
+                      { type: 'high-contrast', label: 'High Contrast' }
+                    ].map(({ type, label }) => (
+                      <button
+                        key={type}
+                        onClick={() => toggleFilter(type)}
+                        className={`w-full px-3 py-1.5 rounded-lg text-sm font-medium ${
+                          activeFilter === type
+                            ? 'bg-purple-100 text-purple-700'
+                            : 'bg-purple-50 hover:bg-purple-100 text-purple-600'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* Transform Tools */}
               <div className="bg-white rounded-lg border border-purple-100 p-3 shadow-sm">
-                <h3 className="text-sm font-medium text-gray-700 mb-3">Transform</h3>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { icon: RotateCcw, action: () => rotate('left'), label: 'Rotate Left' },
-                    { icon: RotateCw, action: () => rotate('right'), label: 'Rotate Right' },
-                    { icon: ZoomIn, action: () => zoom(0.1), label: 'Zoom In' },
-                    { icon: ZoomOut, action: () => zoom(-0.1), label: 'Zoom Out' },
-                    { icon: Crop, action: startCropping, label: 'Crop', active: isCropping }
-                  ].map(({ icon: Icon, action, label, active }) => (
-                    <button
-                      key={label}
-                      onClick={action}
-                      className={`p-2 rounded-lg flex flex-col items-center gap-1 transition-colors ${
-                        active ? 'bg-purple-100 text-purple-600' : 'hover:bg-purple-50 text-gray-700'
-                      }`}
-                    >
-                      <Icon className="w-5 h-5" />
-                      <span className="text-xs">{label}</span>
-                    </button>
-                  ))}
-                </div>
-                {isCropping && (
-                  <div className="mt-2 flex gap-2">
-                    <button
-                      onClick={applyCrop}
-                      className="flex-1 px-3 py-1.5 bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 text-sm font-medium"
-                    >
-                      Apply
-                    </button>
-                    <button
-                      onClick={cancelCrop}
-                      className="flex-1 px-3 py-1.5 bg-gray-50 hover:bg-gray-100 rounded-lg text-gray-600 text-sm font-medium"
-                    >
-                      Cancel
-                    </button>
+                <button 
+                  onClick={() => setIsTransformExpanded(!isTransformExpanded)}
+                  className="w-full flex items-center justify-between text-sm font-medium text-gray-700"
+                >
+                  <span>Transform</span>
+                  <ChevronDown 
+                    className={`w-4 h-4 transition-transform ${isTransformExpanded ? 'transform rotate-180' : ''}`} 
+                  />
+                </button>
+                {isTransformExpanded && (
+                  <div className="mt-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { icon: RotateCcw, action: () => rotate('left'), label: 'Rotate Left' },
+                        { icon: RotateCw, action: () => rotate('right'), label: 'Rotate Right' },
+                        { icon: ZoomIn, action: () => zoom(0.1), label: 'Zoom In' },
+                        { icon: ZoomOut, action: () => zoom(-0.1), label: 'Zoom Out' },
+                        { icon: Crop, action: startCropping, label: 'Crop', active: isCropping }
+                      ].map(({ icon: Icon, action, label, active }) => (
+                        <button
+                          key={label}
+                          onClick={action}
+                          className={`p-2 rounded-lg flex flex-col items-center gap-1 transition-colors ${
+                            active ? 'bg-purple-100 text-purple-600' : 'hover:bg-purple-50 text-gray-700'
+                          }`}
+                        >
+                          <Icon className="w-5 h-5" />
+                          <span className="text-xs">{label}</span>
+                        </button>
+                      ))}
+                    </div>
+                    {isCropping && (
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          onClick={applyCrop}
+                          className="flex-1 px-3 py-1.5 bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 text-sm font-medium"
+                        >
+                          Apply
+                        </button>
+                        <button
+                          onClick={cancelCrop}
+                          className="flex-1 px-3 py-1.5 bg-gray-50 hover:bg-gray-100 rounded-lg text-gray-600 text-sm font-medium"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
 
               {/* Actions */}
               <div className="bg-white rounded-lg border border-purple-100 p-3 shadow-sm">
-                <h3 className="text-sm font-medium text-gray-700 mb-3">Actions</h3>
-                <div className="space-y-2">
-                  <div className="grid grid-cols-2 gap-2 mb-2">
+                <button 
+                  onClick={() => setIsActionsExpanded(!isActionsExpanded)}
+                  className="w-full flex items-center justify-between text-sm font-medium text-gray-700"
+                >
+                  <span>Actions</span>
+                  <ChevronDown 
+                    className={`w-4 h-4 transition-transform ${isActionsExpanded ? 'transform rotate-180' : ''}`} 
+                  />
+                </button>
+                {isActionsExpanded && (
+                  <div className="space-y-2 mt-3">
+                    <div className="grid grid-cols-2 gap-2 mb-2">
+                      <button
+                        onClick={undo}
+                        disabled={historyIndex <= 0}
+                        className="px-4 py-2 bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Undo className="w-4 h-4" />
+                        Undo
+                      </button>
+                      <button
+                        onClick={redo}
+                        disabled={historyIndex >= history.length - 1}
+                        className="px-4 py-2 bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Redo className="w-4 h-4" />
+                        Redo
+                      </button>
+                    </div>
                     <button
-                      onClick={undo}
-                      disabled={historyIndex <= 0}
-                      className="px-4 py-2 bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={triggerFileInput}
+                      className="w-full px-4 py-2 bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 font-medium flex items-center justify-center gap-2"
                     >
-                      <Undo className="w-4 h-4" />
-                      Undo
+                      <Upload className="w-4 h-4" />
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleImageUpload}
+                        accept="image/*"
+                        className="hidden"
+                      />
+                      Upload Image
                     </button>
                     <button
-                      onClick={redo}
-                      disabled={historyIndex >= history.length - 1}
-                      className="px-4 py-2 bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={downloadImage}
+                      className="w-full px-4 py-2 bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 font-medium flex items-center justify-center gap-2"
                     >
-                      <Redo className="w-4 h-4" />
-                      Redo
+                      <Download className="w-4 h-4" />
+                      Download
+                    </button>
+                    <button
+                      onClick={() => {
+                        const canvas = canvasRef.current;
+                        const ctx = canvas?.getContext('2d');
+                        if (!canvas || !ctx) return;
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        saveToHistory(ctx.getImageData(0, 0, canvas.width, canvas.height));
+                      }}
+                      className="w-full px-4 py-2 bg-red-50 hover:bg-red-100 rounded-lg text-red-600 font-medium flex items-center justify-center gap-2"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Clear Image
                     </button>
                   </div>
-                  <button
-                    onClick={triggerFileInput}
-                    className="w-full px-4 py-2 bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 font-medium flex items-center justify-center gap-2"
-                  >
-                    <Upload className="w-4 h-4" />
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      onChange={handleImageUpload}
-                      accept="image/*"
-                      className="hidden"
-                    />
-                    Upload Image
-                  </button>
-                  <button
-                    onClick={downloadImage}
-                    className="w-full px-4 py-2 bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 font-medium flex items-center justify-center gap-2"
-                  >
-                    <Download className="w-4 h-4" />
-                    Download
-                  </button>
-                  <button
-                    onClick={() => {
-                      const canvas = canvasRef.current;
-                      const ctx = canvas?.getContext('2d');
-                      if (!canvas || !ctx) return;
-                      ctx.clearRect(0, 0, canvas.width, canvas.height);
-                      saveToHistory(ctx.getImageData(0, 0, canvas.width, canvas.height));
-                    }}
-                    className="w-full px-4 py-2 bg-red-50 hover:bg-red-100 rounded-lg text-red-600 font-medium flex items-center justify-center gap-2"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Clear Image
-                  </button>
-                </div>
+                )}
               </div>
 
               {/* Scale Control */}
               <div className="bg-white rounded-lg border border-purple-100 p-3 shadow-sm">
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-medium text-gray-700">Scale</h3>
-                  <span className="text-xs font-medium text-gray-600">{Math.round(scale * 100)}%</span>
+                  <span className="text-sm font-medium text-gray-700">Scale</span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min="10"
+                      max="200"
+                      value={Math.round(scale * 100)}
+                      onChange={(e) => handleScaleChange(Number(e.target.value))}
+                      className="w-16 px-2 py-1 text-sm text-right border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-purple-500"
+                    />
+                    <span className="text-sm text-gray-500">%</span>
+                  </div>
                 </div>
                 <input
                   type="range"
                   min="10"
-                  max="300"
+                  max="200"
                   value={scale * 100}
-                  onChange={(e) => setScale(parseInt(e.target.value) / 100)}
+                  onChange={(e) => handleScaleChange(Number(e.target.value))}
                   className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
                 />
               </div>
+
             </div>
           </div>
 
