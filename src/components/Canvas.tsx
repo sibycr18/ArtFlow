@@ -1,10 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Brush, Eraser, Square, Circle, Triangle, 
   ChevronDown, Download, Trash2, 
   Bold, Italic, Underline, 
   AlignLeft, AlignCenter, AlignRight, AlignJustify,
-  ArrowLeft
+  ArrowLeft, Undo, Redo
 } from 'lucide-react';
 import ColorPicker from './ColorPicker';
 
@@ -21,6 +21,8 @@ type Tool = 'brush' | 'eraser' | 'rectangle' | 'circle' | 'triangle';
 
 const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const baseCanvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [startPos, setStartPos] = useState<{ x: number; y: number } | null>(null);
   const [selectedTool, setSelectedTool] = useState<Tool>('brush');
@@ -29,19 +31,18 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
   const [color, setColor] = useState('#000000');
   const [recentColors, setRecentColors] = useState<string[]>([]);
   const [showColorPicker, setShowColorPicker] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const baseCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [canvasWidth, setCanvasWidth] = useState(1280);
   const [canvasHeight, setCanvasHeight] = useState(720);
+  const [history, setHistory] = useState<string[]>([]);
+  const [currentStep, setCurrentStep] = useState(-1);
 
   useEffect(() => {
     const updateCanvasSize = () => {
       if (containerRef.current) {
         const container = containerRef.current;
-        const maxWidth = container.clientWidth - 64; // 32px padding on each side
+        const maxWidth = container.clientWidth - 64;
         const maxHeight = container.clientHeight - 64;
         
-        // Keep 16:9 aspect ratio
         const aspectRatio = 16 / 9;
         let width = maxWidth;
         let height = width / aspectRatio;
@@ -65,165 +66,73 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const updateCanvasSize = () => {
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width;
-      canvas.height = rect.height;
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
 
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    };
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Initial size
-    updateCanvasSize();
-
-    // Update size when window resizes
-    const resizeObserver = new ResizeObserver(updateCanvasSize);
-    resizeObserver.observe(canvas);
-
-    // Create base canvas for shape preview
+    // Initialize base canvas
     const baseCanvas = document.createElement('canvas');
     baseCanvas.width = canvas.width;
     baseCanvas.height = canvas.height;
     baseCanvasRef.current = baseCanvas;
 
-    return () => resizeObserver.disconnect();
-  }, []);
+    // Save initial state
+    const initialState = canvas.toDataURL();
+    setHistory([initialState]);
+    setCurrentStep(0);
+  }, [canvasWidth, canvasHeight]);
 
-  const getMousePos = (e: MouseEvent) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
-    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
-
-    return { x, y };
-  };
-
-  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    setIsDrawing(true);
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!ctx || !canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
-    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
-
-    setStartPos({ x, y });
-
-    // Save the current canvas state for shape preview
-    if (baseCanvasRef.current && (selectedTool === 'rectangle' || selectedTool === 'circle' || selectedTool === 'triangle')) {
-      const baseCtx = baseCanvasRef.current.getContext('2d');
-      if (baseCtx) {
-        baseCtx.clearRect(0, 0, canvas.width, canvas.height);
-        baseCtx.drawImage(canvas, 0, 0);
-      }
-    } else {
-      ctx.beginPath();
-      ctx.moveTo(x, y);
+  const saveState = () => {
+    if (!isDrawing) {  // Only save when drawing is finished
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      
+      const state = canvas.toDataURL();
+      const newHistory = history.slice(0, currentStep + 1);
+      newHistory.push(state);
+      
+      setHistory(newHistory);
+      setCurrentStep(newHistory.length - 1);
     }
   };
 
-  const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDrawing || !startPos) return;
-
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!ctx || !canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
-    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
-
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    if (selectedTool === 'eraser') {
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.lineWidth = eraserSize;
-      ctx.lineTo(x, y);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-    } else if (selectedTool === 'brush') {
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.lineWidth = brushSize;
-      ctx.strokeStyle = color;
-      ctx.lineTo(x, y);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-    } else {
-      // For shapes, restore the base canvas and draw the preview
-      if (baseCanvasRef.current) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(baseCanvasRef.current, 0, 0);
-        
-        ctx.beginPath();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = brushSize;
-        ctx.globalCompositeOperation = 'source-over';
-
-        if (selectedTool === 'rectangle') {
-          const width = x - startPos.x;
-          const height = y - startPos.y;
-          ctx.strokeRect(startPos.x, startPos.y, width, height);
-        } else if (selectedTool === 'circle') {
-          // Calculate radius based on the maximum distance in either direction
-          const dx = x - startPos.x;
-          const dy = y - startPos.y;
-          const radius = Math.max(Math.abs(dx), Math.abs(dy));
-          
-          ctx.beginPath();
-          ctx.arc(startPos.x, startPos.y, radius, 0, Math.PI * 2);
-          ctx.stroke();
-        } else if (selectedTool === 'triangle') {
-          // Calculate the size based on drag distance
-          const dx = x - startPos.x;
-          const dy = y - startPos.y;
-          const size = Math.max(Math.abs(dx), Math.abs(dy));
-          
-          // Calculate direction for proper orientation
-          const directionX = Math.sign(dx) || 1;
-          const directionY = Math.sign(dy) || 1;
-          
-          // Calculate triangle points for an equilateral triangle
-          const height = size * Math.sqrt(3) / 2;
-          
-          // Calculate the three points of the triangle
-          const topX = startPos.x;
-          const topY = startPos.y;
-          const leftX = startPos.x - size * directionX / 2;
-          const leftY = startPos.y + height * directionY;
-          const rightX = startPos.x + size * directionX / 2;
-          const rightY = startPos.y + height * directionY;
-          
-          ctx.beginPath();
-          ctx.moveTo(topX, topY);
-          ctx.lineTo(leftX, leftY);
-          ctx.lineTo(rightX, rightY);
-          ctx.closePath();
-          ctx.stroke();
-        }
-      }
-    }
+  const undo = () => {
+    if (currentStep <= 0 || !canvasRef.current) return;
+    
+    const newStep = currentStep - 1;
+    const img = new Image();
+    img.src = history[newStep];
+    img.onload = () => {
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d');
+      if (!canvas || !ctx) return;
+      
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+      setCurrentStep(newStep);
+    };
   };
 
-  const stopDrawing = () => {
-    setIsDrawing(false);
-    setStartPos(null);
-
-    // Reset composite operation
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (ctx) {
-      ctx.globalCompositeOperation = 'source-over';
-    }
+  const redo = () => {
+    if (currentStep >= history.length - 1 || !canvasRef.current) return;
+    
+    const newStep = currentStep + 1;
+    const img = new Image();
+    img.src = history[newStep];
+    img.onload = () => {
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d');
+      if (!canvas || !ctx) return;
+      
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+      setCurrentStep(newStep);
+    };
   };
 
   const clearCanvas = () => {
@@ -233,6 +142,158 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
 
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+    saveState();
+  };
+
+  const stopDrawing = () => {
+    setIsDrawing(false);
+    setStartPos(null);
+
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (ctx) {
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    
+    // Save state after drawing is complete
+    saveState();
+  };
+
+  const getMousePos = (e: MouseEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+
+    return { x, y };
+  };
+
+  const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!ctx || !canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+
+    if (['rectangle', 'circle', 'triangle'].includes(selectedTool) && startPos) {
+      // For shapes, clear and redraw
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Restore the original canvas state
+      const baseCanvas = baseCanvasRef.current;
+      if (baseCanvas) {
+        ctx.drawImage(baseCanvas, 0, 0);
+      }
+      
+      // Set shape styles
+      ctx.beginPath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = brushSize;
+      ctx.fillStyle = color;
+
+      if (selectedTool === 'rectangle') {
+        const width = x - startPos.x;
+        const height = y - startPos.y;
+        ctx.strokeRect(startPos.x, startPos.y, width, height);
+      } else if (selectedTool === 'circle') {
+        // Calculate diameter and center based on the distance
+        const dx = x - startPos.x;
+        const dy = y - startPos.y;
+        const diameter = Math.sqrt(dx * dx + dy * dy);
+        const radius = diameter / 2;
+        
+        // Calculate center point (halfway between start and current position)
+        const centerX = startPos.x + dx/2;
+        const centerY = startPos.y + dy/2;
+        
+        // Draw circle with start point on circumference
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (selectedTool === 'triangle') {
+        // Calculate size based on mouse distance
+        const dx = x - startPos.x;
+        const dy = y - startPos.y;
+        const size = Math.sqrt(dx * dx + dy * dy);
+        
+        // Draw equilateral triangle with fixed top point
+        ctx.beginPath();
+        // Top point (fixed at start position)
+        ctx.moveTo(startPos.x, startPos.y);
+        
+        // Calculate base points of the triangle
+        const angle = Math.PI / 3; // 60 degrees for equilateral triangle
+        const leftX = startPos.x - size * Math.cos(angle);
+        const leftY = startPos.y + size * Math.sin(angle);
+        const rightX = startPos.x + size * Math.cos(angle);
+        const rightY = startPos.y + size * Math.sin(angle);
+        
+        ctx.lineTo(leftX, leftY);
+        ctx.lineTo(rightX, rightY);
+        ctx.closePath();
+        ctx.stroke();
+      }
+    } else {
+      // For brush and eraser
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    }
+  };
+
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    console.log('Start drawing', e.clientX, e.clientY);
+    setIsDrawing(true);
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!ctx || !canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+
+    setStartPos({ x, y });
+
+    // For shapes, save the current canvas state
+    if (['rectangle', 'circle', 'triangle'].includes(selectedTool)) {
+      const baseCanvas = baseCanvasRef.current;
+      const baseCtx = baseCanvas?.getContext('2d');
+      if (baseCanvas && baseCtx) {
+        baseCtx.clearRect(0, 0, canvas.width, canvas.height);
+        baseCtx.drawImage(canvas, 0, 0);
+      }
+      return;
+    }
+
+    // For brush and eraser
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = selectedTool === 'eraser' ? eraserSize : brushSize;
+    
+    if (selectedTool === 'eraser') {
+      ctx.globalCompositeOperation = 'destination-out';
+    } else {
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    ctx.lineTo(x, y);
+    ctx.stroke();
   };
 
   const handleColorChange = (newColor: string, shouldClose: boolean = false) => {
@@ -273,6 +334,26 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
     } else {
       setEraserSize(clampedValue);
     }
+  };
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    const mouseEvent = new MouseEvent('mousedown', {
+      clientX: touch.clientX,
+      clientY: touch.clientY
+    });
+    startDrawing(mouseEvent as any);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    const mouseEvent = new MouseEvent('mousemove', {
+      clientX: touch.clientX,
+      clientY: touch.clientY
+    });
+    draw(mouseEvent as any);
   };
 
   return (
@@ -330,39 +411,26 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
               </div>
 
               {/* Tool Settings */}
-              {selectedTool === 'brush' && (
-                <div className="bg-white rounded-lg border border-purple-100 p-3 shadow-sm">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-medium text-gray-700">Brush Size</h3>
-                    <span className="text-xs font-medium text-gray-600">{brushSize}px</span>
-                  </div>
+              <div className="bg-white rounded-lg border border-purple-100 p-3 shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-medium text-gray-700">
+                    {selectedTool === 'eraser' ? 'Eraser Size' : 'Tool Size'}
+                  </h3>
+                  <span className="text-xs font-medium text-gray-600">
+                    {selectedTool === 'eraser' ? eraserSize : brushSize}px
+                  </span>
+                </div>
+                <div onClick={(e) => e.stopPropagation()}>
                   <input
                     type="range"
                     min="1"
                     max="100"
-                    value={brushSize}
-                    onChange={(e) => handleSizeChange(parseInt(e.target.value), 'brush')}
-                    className="w-full"
+                    value={selectedTool === 'eraser' ? eraserSize : brushSize}
+                    onChange={(e) => handleSizeChange(parseInt(e.target.value), selectedTool === 'eraser' ? 'eraser' : 'brush')}
+                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
                   />
                 </div>
-              )}
-
-              {selectedTool === 'eraser' && (
-                <div className="bg-white rounded-lg border border-purple-100 p-3 shadow-sm">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-medium text-gray-700">Eraser Size</h3>
-                    <span className="text-xs font-medium text-gray-600">{eraserSize}px</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="1"
-                    max="100"
-                    value={eraserSize}
-                    onChange={(e) => handleSizeChange(parseInt(e.target.value), 'eraser')}
-                    className="w-full"
-                  />
-                </div>
-              )}
+              </div>
 
               {/* Color Section */}
               <div className="bg-white rounded-lg border border-purple-100 p-3 shadow-sm">
@@ -436,6 +504,24 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
               <div className="bg-white rounded-lg border border-purple-100 p-3 shadow-sm">
                 <h3 className="text-sm font-medium text-gray-700 mb-3">Actions</h3>
                 <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    <button
+                      onClick={undo}
+                      disabled={currentStep <= 0}
+                      className="px-4 py-2 bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Undo className="w-4 h-4" />
+                      Undo
+                    </button>
+                    <button
+                      onClick={redo}
+                      disabled={currentStep >= history.length - 1}
+                      className="px-4 py-2 bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Redo className="w-4 h-4" />
+                      Redo
+                    </button>
+                  </div>
                   <button
                     onClick={downloadCanvas}
                     className="w-full px-4 py-2 bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 font-medium flex items-center justify-center gap-2"
@@ -463,14 +549,14 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
                   ref={canvasRef}
                   width={canvasWidth}
                   height={canvasHeight}
-                  className="w-full h-full touch-none rounded-lg"
-                  style={{
-                    cursor: selectedTool === 'eraser' ? 'crosshair' : 'default'
-                  }}
+                  className="touch-none"
                   onMouseDown={startDrawing}
                   onMouseMove={draw}
                   onMouseUp={stopDrawing}
                   onMouseOut={stopDrawing}
+                  onTouchStart={handleTouchStart}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={stopDrawing}
                 />
               </div>
             </div>
