@@ -14,6 +14,7 @@ type Tool = 'brush' | 'eraser' | 'rectangle' | 'circle' | 'triangle';
 const Canvas: React.FC<CanvasProps> = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [startPos, setStartPos] = useState<{ x: number; y: number } | null>(null);
   const [selectedTool, setSelectedTool] = useState<Tool>('brush');
   const [color, setColor] = useState('#000000');
   const [brushSize, setBrushSize] = useState(5);
@@ -21,6 +22,7 @@ const Canvas: React.FC<CanvasProps> = () => {
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [recentColors, setRecentColors] = useState<string[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
+  const baseCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -44,6 +46,12 @@ const Canvas: React.FC<CanvasProps> = () => {
     // Update size when window resizes
     const resizeObserver = new ResizeObserver(updateCanvasSize);
     resizeObserver.observe(canvas);
+
+    // Create base canvas for shape preview
+    const baseCanvas = document.createElement('canvas');
+    baseCanvas.width = canvas.width;
+    baseCanvas.height = canvas.height;
+    baseCanvasRef.current = baseCanvas;
 
     return () => resizeObserver.disconnect();
   }, []);
@@ -69,12 +77,23 @@ const Canvas: React.FC<CanvasProps> = () => {
     const x = (e.clientX - rect.left) * (canvas.width / rect.width);
     const y = (e.clientY - rect.top) * (canvas.height / rect.height);
 
-    ctx.beginPath();
-    ctx.moveTo(x, y);
+    setStartPos({ x, y });
+
+    // Save the current canvas state for shape preview
+    if (baseCanvasRef.current && (selectedTool === 'rectangle' || selectedTool === 'circle' || selectedTool === 'triangle')) {
+      const baseCtx = baseCanvasRef.current.getContext('2d');
+      if (baseCtx) {
+        baseCtx.clearRect(0, 0, canvas.width, canvas.height);
+        baseCtx.drawImage(canvas, 0, 0);
+      }
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+    }
   };
 
   const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDrawing) return;
+    if (!isDrawing || !startPos) return;
 
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
@@ -90,20 +109,84 @@ const Canvas: React.FC<CanvasProps> = () => {
     if (selectedTool === 'eraser') {
       ctx.globalCompositeOperation = 'destination-out';
       ctx.lineWidth = eraserSize;
-    } else {
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+    } else if (selectedTool === 'brush') {
       ctx.globalCompositeOperation = 'source-over';
       ctx.lineWidth = brushSize;
       ctx.strokeStyle = color;
-    }
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+    } else {
+      // For shapes, restore the base canvas and draw the preview
+      if (baseCanvasRef.current) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(baseCanvasRef.current, 0, 0);
+        
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = brushSize;
+        ctx.globalCompositeOperation = 'source-over';
 
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(x, y);
+        if (selectedTool === 'rectangle') {
+          const width = x - startPos.x;
+          const height = y - startPos.y;
+          ctx.strokeRect(startPos.x, startPos.y, width, height);
+        } else if (selectedTool === 'circle') {
+          // Calculate radius based on the maximum distance in either direction
+          const dx = x - startPos.x;
+          const dy = y - startPos.y;
+          const radius = Math.max(Math.abs(dx), Math.abs(dy));
+          
+          ctx.beginPath();
+          ctx.arc(startPos.x, startPos.y, radius, 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (selectedTool === 'triangle') {
+          // Calculate the size based on drag distance
+          const dx = x - startPos.x;
+          const dy = y - startPos.y;
+          const size = Math.max(Math.abs(dx), Math.abs(dy));
+          
+          // Calculate direction for proper orientation
+          const directionX = Math.sign(dx) || 1;
+          const directionY = Math.sign(dy) || 1;
+          
+          // Calculate triangle points for an equilateral triangle
+          const height = size * Math.sqrt(3) / 2;
+          
+          // Calculate the three points of the triangle
+          const topX = startPos.x;
+          const topY = startPos.y;
+          const leftX = startPos.x - size * directionX / 2;
+          const leftY = startPos.y + height * directionY;
+          const rightX = startPos.x + size * directionX / 2;
+          const rightY = startPos.y + height * directionY;
+          
+          ctx.beginPath();
+          ctx.moveTo(topX, topY);
+          ctx.lineTo(leftX, leftY);
+          ctx.lineTo(rightX, rightY);
+          ctx.closePath();
+          ctx.stroke();
+        }
+      }
+    }
   };
 
   const stopDrawing = () => {
     setIsDrawing(false);
+    setStartPos(null);
+
+    // Reset composite operation
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (ctx) {
+      ctx.globalCompositeOperation = 'source-over';
+    }
   };
 
   const clearCanvas = () => {
