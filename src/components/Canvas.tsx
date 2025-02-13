@@ -7,6 +7,8 @@ import {
   ArrowLeft, Undo, Redo
 } from 'lucide-react';
 import ColorPicker from './ColorPicker';
+import { useCanvas } from '../contexts/CanvasContext';
+import OtherUsersCursors from './OtherUsersCursors';
 
 interface CanvasProps {
   width?: number;
@@ -35,6 +37,8 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
   const [canvasHeight, setCanvasHeight] = useState(720);
   const [history, setHistory] = useState<string[]>([]);
   const [currentStep, setCurrentStep] = useState(-1);
+
+  const { sendDrawData, sendCursorMove, sendClearCanvas, isConnected } = useCanvas();
 
   useEffect(() => {
     const updateCanvasSize = () => {
@@ -142,6 +146,7 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
 
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+    sendClearCanvas();
     saveState();
   };
 
@@ -205,34 +210,46 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
         const width = x - startPos.x;
         const height = y - startPos.y;
         ctx.strokeRect(startPos.x, startPos.y, width, height);
+        
+        // Send shape data
+        sendDrawData({
+          type: 'rectangle',
+          x: startPos.x,
+          y: startPos.y,
+          width,
+          height,
+          color,
+          lineWidth: brushSize
+        });
       } else if (selectedTool === 'circle') {
-        // Calculate diameter and center based on the distance
         const dx = x - startPos.x;
         const dy = y - startPos.y;
-        const diameter = Math.sqrt(dx * dx + dy * dy);
-        const radius = diameter / 2;
-        
-        // Calculate center point (halfway between start and current position)
+        const radius = Math.sqrt(dx * dx + dy * dy) / 2;
         const centerX = startPos.x + dx/2;
         const centerY = startPos.y + dy/2;
         
-        // Draw circle with start point on circumference
         ctx.beginPath();
         ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
         ctx.stroke();
+        
+        // Send shape data
+        sendDrawData({
+          type: 'circle',
+          centerX,
+          centerY,
+          radius,
+          color,
+          lineWidth: brushSize
+        });
       } else if (selectedTool === 'triangle') {
-        // Calculate size based on mouse distance
         const dx = x - startPos.x;
         const dy = y - startPos.y;
         const size = Math.sqrt(dx * dx + dy * dy);
         
-        // Draw equilateral triangle with fixed top point
         ctx.beginPath();
-        // Top point (fixed at start position)
         ctx.moveTo(startPos.x, startPos.y);
         
-        // Calculate base points of the triangle
-        const angle = Math.PI / 3; // 60 degrees for equilateral triangle
+        const angle = Math.PI / 3;
         const leftX = startPos.x - size * Math.cos(angle);
         const leftY = startPos.y + size * Math.sin(angle);
         const rightX = startPos.x + size * Math.cos(angle);
@@ -242,11 +259,30 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
         ctx.lineTo(rightX, rightY);
         ctx.closePath();
         ctx.stroke();
+        
+        // Send shape data
+        sendDrawData({
+          type: 'triangle',
+          startX: startPos.x,
+          startY: startPos.y,
+          size,
+          color,
+          lineWidth: brushSize
+        });
       }
     } else {
       // For brush and eraser
       ctx.lineTo(x, y);
       ctx.stroke();
+      
+      // Send stroke data
+      sendDrawData({
+        type: selectedTool,
+        x,
+        y,
+        color: selectedTool === 'eraser' ? '#ffffff' : color,
+        width: selectedTool === 'eraser' ? eraserSize : brushSize
+      });
     }
   };
 
@@ -356,6 +392,24 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
     draw(mouseEvent as any);
   };
 
+  // Add cursor movement tracking
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+
+    sendCursorMove(x, y);
+
+    if (isDrawing) {
+      draw(e);
+    }
+  }, [isDrawing, sendCursorMove]);
+
   return (
     <div className="fixed inset-0 bg-gradient-to-br from-purple-50 to-blue-50 overflow-hidden">
       <div className="h-screen w-full max-w-[1920px] mx-auto flex flex-col">
@@ -372,7 +426,9 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
               <h1 className="text-xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
                 Canvas
               </h1>
-              <p className="text-sm text-gray-600">Drawing Tools</p>
+              <p className="text-sm text-gray-600">
+                {isConnected ? 'Connected' : 'Disconnected'}
+              </p>
             </div>
           </div>
         </div>
@@ -544,19 +600,23 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
           {/* Canvas Area */}
           <div className="flex-1 bg-gray-50 overflow-hidden" ref={containerRef}>
             <div className="h-full w-full flex items-center justify-center">
-              <div className="bg-white shadow-lg rounded-lg">
+              <div className="bg-white shadow-lg rounded-lg relative">
                 <canvas
                   ref={canvasRef}
                   width={canvasWidth}
                   height={canvasHeight}
                   className="touch-none"
                   onMouseDown={startDrawing}
-                  onMouseMove={draw}
+                  onMouseMove={handleMouseMove}
                   onMouseUp={stopDrawing}
                   onMouseOut={stopDrawing}
                   onTouchStart={handleTouchStart}
                   onTouchMove={handleTouchMove}
                   onTouchEnd={stopDrawing}
+                />
+                <OtherUsersCursors
+                  canvasWidth={canvasWidth}
+                  canvasHeight={canvasHeight}
                 />
               </div>
             </div>

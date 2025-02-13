@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { File as FileIcon, Image, PenSquare, Pencil, Trash2, ArrowLeft } from 'lucide-react';
 import { useProjects } from '../contexts/ProjectContext';
+import { CanvasProvider } from '../contexts/CanvasContext';
+import { useAuth } from '../context/AuthContext';
 import ContextMenu from './common/ContextMenu';
 import ConfirmationDialog from './common/ConfirmationDialog';
 import Canvas from './Canvas';
@@ -21,6 +23,7 @@ interface FileItemProps {
 
 export default function FileItem({ file, projectId, onFileOpen, onFileClose }: FileItemProps) {
   const { deleteFile, renameFile } = useProjects();
+  const { user } = useAuth();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
@@ -152,10 +155,16 @@ export default function FileItem({ file, projectId, onFileOpen, onFileClose }: F
       {/* Canvas Modal */}
       {showCanvas && createPortal(
         <div className="fixed inset-0 z-50">
-          <Canvas onClose={() => {
-            setShowCanvas(false);
-            onFileClose?.();
-          }} />
+          <CanvasProvider
+            projectId={projectId}
+            fileId={file.id}
+            userId={user?.id || 'anonymous'}
+          >
+            <Canvas onClose={() => {
+              setShowCanvas(false);
+              onFileClose?.();
+            }} />
+          </CanvasProvider>
         </div>,
         document.body
       )}
