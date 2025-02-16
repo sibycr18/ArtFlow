@@ -29,12 +29,17 @@ logger.info(f"Starting new session. Logging to {log_file}")
 
 app = FastAPI()
 
-# Add CORS middleware
+# Add CORS middleware with production configuration
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",  # Local development
+    "https://art-flow-neon.vercel.app"  # Production frontend
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with your frontend URL
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
