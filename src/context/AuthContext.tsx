@@ -25,19 +25,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Check for existing session
+    console.log('Checking for existing session...');
     const storedUser = localStorage.getItem('user');
     if (storedUser) {
       try {
-        setUser(JSON.parse(storedUser));
+        console.log('Found stored user data:', storedUser);
+        const parsedUser = JSON.parse(storedUser);
+        console.log('Parsed user data:', parsedUser);
+        setUser(parsedUser);
       } catch (error) {
         console.error('Error parsing stored user:', error);
         localStorage.removeItem('user');
       }
+    } else {
+      console.log('No stored user data found');
     }
     setIsLoading(false);
   }, []);
 
   const logout = () => {
+    console.log('Logging out user');
     setUser(null);
     localStorage.removeItem('user');
     navigate('/login');
@@ -46,10 +53,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const value = {
     user,
     setUser: (newUser: User | null) => {
+      console.log('Setting user:', newUser);
       setUser(newUser);
       if (newUser) {
+        console.log('Storing user data in localStorage');
         localStorage.setItem('user', JSON.stringify(newUser));
       } else {
+        console.log('Removing user data from localStorage');
         localStorage.removeItem('user');
       }
     },

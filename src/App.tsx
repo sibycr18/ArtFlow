@@ -6,9 +6,11 @@ import Dashboard from './pages/Dashboard';
 import ProjectView from './pages/ProjectView';
 import ExplorePage from './pages/ExplorePage';
 import Login from './components/auth/Login';
+import TestCanvas from './pages/TestCanvas';
 import { SidebarProvider } from './contexts/SidebarContext';
 import { ProjectProvider } from './contexts/ProjectContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import EditorView from './pages/EditorView';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -51,6 +53,7 @@ function AppRoutes() {
           </RequireNoAuth>
         }
       />
+      <Route path="/test-canvas" element={<TestCanvas />} />
       <Route
         path="/*"
         element={
@@ -65,6 +68,7 @@ function AppRoutes() {
                       <Routes>
                         <Route path="/" element={<Dashboard />} />
                         <Route path="/project/:id" element={<ProjectView />} />
+                        <Route path="/project/:projectId/:fileId" element={<EditorView />} />
                         <Route path="/explore" element={<ExplorePage />} />
                         <Route path="*" element={<Navigate to="/" replace />} />
                       </Routes>

@@ -25,37 +25,52 @@ export default function Login() {
 
   const handleGoogleSuccess = (credentialResponse: GoogleCredentialResponse) => {
     try {
+      console.log('Received Google credential response');
+      
       if (!credentialResponse.credential) {
+        console.error('No credentials received from Google');
         throw new Error('No credentials received');
       }
 
+      console.log('Decoding JWT token...');
       const decoded = jwtDecode<DecodedCredential>(credentialResponse.credential);
+      console.log('Decoded token:', { ...decoded, credential: '[REDACTED]' });
       
       // Verify token expiration
       const currentTime = Math.floor(Date.now() / 1000);
       if (decoded.exp < currentTime) {
+        console.error('Token has expired:', { exp: decoded.exp, currentTime });
         throw new Error('Token has expired');
       }
+      console.log('Token expiration verified');
 
       // Verify client ID
       const expectedClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
       if (!expectedClientId) {
+        console.error('Client ID not configured in environment');
         throw new Error('Client ID not configured');
       }
       if (decoded.aud !== expectedClientId) {
+        console.error('Invalid client ID:', { expected: expectedClientId, received: decoded.aud });
         throw new Error('Invalid client ID');
       }
+      console.log('Client ID verified');
 
       // Verify that we have all required user data
       if (!decoded.email || !decoded.name || !decoded.picture || !decoded.sub) {
+        console.error('Missing required user data:', decoded);
         throw new Error('Missing required user data');
       }
+      console.log('Required user data verified');
 
       // Verify email is validated by Google
       if (!decoded.email_verified) {
+        console.error('Email not verified by Google');
         throw new Error('Email not verified');
       }
+      console.log('Email verification status confirmed');
 
+      console.log('Setting user data in context');
       setUser({
         email: decoded.email,
         name: decoded.name,
@@ -65,6 +80,7 @@ export default function Login() {
 
       // Navigate to the page they were trying to access, or home if none
       const from = location.state?.from?.pathname || '/';
+      console.log('Navigating to:', from);
       navigate(from, { replace: true });
     } catch (error) {
       console.error('Login error:', error);

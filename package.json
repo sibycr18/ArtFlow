@@ -12,12 +12,14 @@
   "dependencies": {
     "@headlessui/react": "^2.2.0",
     "@react-oauth/google": "^0.12.1",
+    "@types/uuid": "^10.0.0",
     "jwt-decode": "^4.0.0",
     "lucide-react": "^0.344.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-draggable": "^4.4.6",
-    "react-router-dom": "^6.22.3"
+    "react-router-dom": "^6.22.3",
+    "uuid": "^11.0.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",

@@ -1,14 +1,9 @@
 import React, { useState } from 'react';
-import { createPortal } from 'react-dom';
-import { File as FileIcon, Image, PenSquare, Pencil, Trash2, ArrowLeft } from 'lucide-react';
+import { File as FileIcon, Image, PenSquare, Pencil, Trash2 } from 'lucide-react';
 import { useProjects } from '../contexts/ProjectContext';
-import { CanvasProvider } from '../contexts/CanvasContext';
-import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import ContextMenu from './common/ContextMenu';
 import ConfirmationDialog from './common/ConfirmationDialog';
-import Canvas from './Canvas';
-import Document from './Document';
-import ImageEditor from './ImageEditor';
 
 interface FileItemProps {
   file: {
@@ -21,15 +16,12 @@ interface FileItemProps {
   onFileClose?: () => void;
 }
 
-export default function FileItem({ file, projectId, onFileOpen, onFileClose }: FileItemProps) {
+export default function FileItem({ file, projectId, onFileOpen }: FileItemProps) {
   const { deleteFile, renameFile } = useProjects();
-  const { user } = useAuth();
+  const navigate = useNavigate();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
-  const [showCanvas, setShowCanvas] = useState(false);
-  const [showDocument, setShowDocument] = useState(false);
-  const [showImageEditor, setShowImageEditor] = useState(false);
   const [newName, setNewName] = useState(file.name);
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -50,23 +42,8 @@ export default function FileItem({ file, projectId, onFileOpen, onFileClose }: F
   };
 
   const handleFileClick = () => {
-    if (file.type === 'canvas') {
-      setShowCanvas(true);
-      onFileOpen?.();
-    } else if (file.type === 'document') {
-      setShowDocument(true);
-      onFileOpen?.();
-    } else if (file.type === 'image') {
-      setShowImageEditor(true);
-      onFileOpen?.();
-    }
-  };
-
-  const handleClose = () => {
-    setShowCanvas(false);
-    setShowDocument(false);
-    setShowImageEditor(false);
-    onFileClose?.();
+    navigate(`/project/${projectId}/${file.id}`);
+    onFileOpen?.();
   };
 
   const getFileIcon = () => {
@@ -151,51 +128,6 @@ export default function FileItem({ file, projectId, onFileOpen, onFileClose }: F
           autoFocus
         />
       </ConfirmationDialog>
-
-      {/* Canvas Modal */}
-      {showCanvas && createPortal(
-        <div className="fixed inset-0 z-50">
-          <CanvasProvider
-            projectId={projectId}
-            fileId={file.id}
-            userId={user?.id || 'anonymous'}
-          >
-            <Canvas onClose={() => {
-              setShowCanvas(false);
-              onFileClose?.();
-            }} />
-          </CanvasProvider>
-        </div>,
-        document.body
-      )}
-
-      {/* Document Modal */}
-      {showDocument && createPortal(
-        <div className="fixed inset-0 z-50">
-          <Document 
-            fileName={file.name} 
-            onClose={() => {
-              setShowDocument(false);
-              onFileClose?.();
-            }}
-          />
-        </div>,
-        document.body
-      )}
-
-      {/* Image Editor Modal */}
-      {showImageEditor && createPortal(
-        <div className="fixed inset-0 z-50">
-          <ImageEditor
-            fileName={file.name}
-            onClose={() => {
-              setShowImageEditor(false);
-              onFileClose?.();
-            }}
-          />
-        </div>,
-        document.body
-      )}
     </>
   );
 }
