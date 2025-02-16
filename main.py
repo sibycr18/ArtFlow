@@ -5,6 +5,13 @@ import logging
 import json
 from datetime import datetime
 import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Get port from environment variable (for Heroku compatibility)
+PORT = int(os.getenv("PORT", 8000))
 
 # Create logs directory if it doesn't exist
 if not os.path.exists('logs'):
@@ -29,10 +36,13 @@ logger.info(f"Starting new session. Logging to {log_file}")
 
 app = FastAPI()
 
+# Get allowed origins from environment
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with your frontend URL
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -159,4 +169,4 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str, file_id: str
 if __name__ == "__main__":
     import uvicorn
     logger.info("Starting server...")
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="debug") 
+    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="debug") 
