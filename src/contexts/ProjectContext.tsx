@@ -4,7 +4,7 @@ import { projects as initialProjects } from '../data/mockData';
 import { useAuth } from '../context/AuthContext';
 import { fileService, FileMetadata, FileType } from "../services/fileService";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'wss://artflow-backend-64f27556b9a4.herokuapp.com';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://artflow-backend-64f27556b9a4.herokuapp.com';
 
 // Log initial mock data
 console.log('Loading mock data:', initialProjects);
