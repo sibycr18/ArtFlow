@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { DrawingData, WebSocketMessage } from '../types/canvas';
+import throttle from 'lodash/throttle';
 
 // Custom logger
 const logger = {
@@ -21,6 +22,7 @@ const logger = {
 const WS_URL = import.meta.env.VITE_WS_URL || 'wss://artflow-backend-64f27556b9a4.herokuapp.com';
 const RECONNECT_INTERVAL = 3000; // 3 seconds
 const MAX_RECONNECT_ATTEMPTS = 5;
+const THROTTLE_INTERVAL = 16; // ~60fps
 
 interface CanvasContextType {
   isConnected: boolean;
@@ -101,6 +103,7 @@ export const CanvasProvider: React.FC<CanvasProviderProps> = ({
     try {
       logger.info(`Connecting to WebSocket... Project: ${projectId}, File: ${fileId}, User: ${userId}`);
       const wsUrl = `${WS_URL}/ws/${projectId}/${fileId}/${userId}`;
+      logger.debug(`WebSocket URL: ${wsUrl}`);
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
@@ -134,8 +137,18 @@ export const CanvasProvider: React.FC<CanvasProviderProps> = ({
             case 'draw':
               logger.debug('Received draw data:', message);
               if (onRemoteDrawRef.current) {
-                // The drawing data is directly in the message, not in a data field
-                onRemoteDrawRef.current(message);
+                onRemoteDrawRef.current(message.data);
+              }
+              break;
+            case 'draw_batch':
+              logger.debug('Received batch draw data:', message);
+              if (onRemoteDrawRef.current && Array.isArray(message.data)) {
+                // Process batch of drawing data
+                requestAnimationFrame(() => {
+                  message.data.forEach(drawData => {
+                    onRemoteDrawRef.current?.(drawData);
+                  });
+                });
               }
               break;
             case 'clear':
@@ -189,29 +202,54 @@ export const CanvasProvider: React.FC<CanvasProviderProps> = ({
     return cleanup;
   }, [projectId, fileId, userId]); // Remove connect and cleanup from dependencies
 
-  const sendMessage = useCallback((message: WebSocketMessage) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(message));
-    } else {
-      logger.warn('WebSocket is not connected. Message not sent:', message);
-    }
-  }, []);
+  // Create a throttled version of sendMessage
+  const throttledSendMessage = useCallback(
+    throttle((message: WebSocketMessage) => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify(message));
+      } else {
+        logger.warn('WebSocket is not connected. Message not sent:', message);
+      }
+    }, THROTTLE_INTERVAL),
+    []
+  );
 
   const sendDrawData = useCallback((data: DrawingData) => {
-    sendMessage({
-      type: 'draw',
-      data: {
-        ...data,
-        timestamp: Date.now()  // Add timestamp for debugging
+    // For start points, send immediately without throttling
+    if ('isStartPoint' in data && data.isStartPoint) {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'draw',
+          data: {
+            ...data,
+            timestamp: Date.now()
+          }
+        }));
       }
-    });
-  }, [sendMessage]);
+    } else {
+      // For continuous drawing, use throttled sending
+      throttledSendMessage({
+        type: 'draw',
+        data: {
+          ...data,
+          timestamp: Date.now()
+        }
+      });
+    }
+  }, [throttledSendMessage]);
+
+  // Make sure to flush any pending messages when unmounting
+  useEffect(() => {
+    return () => {
+      throttledSendMessage.flush();
+    };
+  }, [throttledSendMessage]);
 
   const sendClearCanvas = useCallback(() => {
-    sendMessage({
+    throttledSendMessage({
       type: 'clear'
     });
-  }, [sendMessage]);
+  }, [throttledSendMessage]);
 
   return (
     <CanvasContext.Provider value={{

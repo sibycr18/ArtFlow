@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import ProjectCard from '../components/ProjectCard';
 import NewProjectButton from '../components/NewProjectButton';
 import { useProjects } from '../contexts/ProjectContext';
@@ -6,6 +6,10 @@ import { Palette } from 'lucide-react';
 
 export default function Dashboard() {
   const { projects } = useProjects();
+
+  useEffect(() => {
+    // Check if there's any code here that updates state without proper dependencies
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50">

@@ -3,6 +3,7 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 import { useNavigate } from 'react-router-dom';
 
 interface User {
+  id?: string;  // Supabase user ID
   email: string;
   name: string;
   picture: string;

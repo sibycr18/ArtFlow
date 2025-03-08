@@ -1,65 +1,93 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserPlus, Users, Shield, Trash2 } from 'lucide-react';
-import ConfirmationModal from './modals/ConfirmationModal';
-import AddMemberModal from './modals/AddMemberModal';
+import AddCollaboratorModal from './modals/AddCollaboratorModal';
 import { useAuth } from '../context/AuthContext';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
 interface Collaborator {
-  id: number;
+  id: string;
   name: string;
-  avatar: string;
-  isAdmin: boolean;
+  email: string;
+  picture: string;
+  is_admin: boolean;
 }
 
-export default function CollaboratorsList() {
-  const [collaborators, setCollaborators] = useState<Collaborator[]>([
-    { 
-      id: 1, 
-      name: 'Member 1', 
-      avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=32&h=32&fit=crop&crop=faces',
-      isAdmin: true 
-    },
-    { 
-      id: 2, 
-      name: 'Member 2', 
-      avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=32&h=32&fit=crop&crop=faces',
-      isAdmin: false 
-    },
-    { 
-      id: 3, 
-      name: 'Member 3', 
-      avatar: 'https://images.unsplash.com/photo-1519345182560-3f2917c472ef?w=32&h=32&fit=crop&crop=faces',
-      isAdmin: false 
-    },
-  ]);
+interface CollaboratorsListProps {
+  projectId: string;
+}
 
+export default function CollaboratorsList({ projectId }: CollaboratorsListProps) {
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { user } = useAuth();
-  const [selectedUser, setSelectedUser] = useState<Collaborator | null>(null);
-  const [showAddMember, setShowAddMember] = useState(false);
-  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
 
-  const handleDeleteClick = (collaborator: Collaborator) => {
-    setSelectedUser(collaborator);
-    setShowDeleteConfirmation(true);
+  const isCurrentUserAdmin = () => {
+    if (!user?.id) return false;
+    const admin = collaborators.find(c => c.is_admin);
+    return admin?.id === user.id;
   };
 
-  const handleDeleteConfirm = () => {
-    if (selectedUser) {
-      setCollaborators(collaborators.filter(c => c.id !== selectedUser.id));
-      setShowDeleteConfirmation(false);
-      setSelectedUser(null);
+  const fetchCollaborators = async () => {
+    if (!user?.id) return;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/projects/${projectId}/collaborators?user_id=${user.id}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch collaborators');
+      }
+      
+      const data = await response.json();
+      setCollaborators(data);
+    } catch (error) {
+      setError('Error loading collaborators');
+      console.error('Fetch collaborators error:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleAddMember = (email: string) => {
-    const newMember: Collaborator = {
-      id: collaborators.length + 1,
-      name: email.split('@')[0],
-      avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=32&h=32&fit=crop&crop=faces',
-      isAdmin: false
-    };
-    setCollaborators([...collaborators, newMember]);
+  const handleRemoveCollaborator = async (collaboratorId: string) => {
+    if (!user?.id || !isCurrentUserAdmin()) return;
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/projects/collaborators`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          project_id: projectId,
+          admin_id: user.id,
+          collaborator_id: collaboratorId
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to remove collaborator');
+      }
+      
+      // Refresh the collaborators list
+      await fetchCollaborators();
+    } catch (error) {
+      setError('Error removing collaborator');
+      console.error('Remove collaborator error:', error);
+    }
   };
+
+  useEffect(() => {
+    if (projectId && user?.id) {
+      fetchCollaborators();
+    }
+  }, [projectId, user?.id]);
+
+  if (!user) return null;
 
   return (
     <>
@@ -69,65 +97,67 @@ export default function CollaboratorsList() {
             <Users className="w-5 h-5 mr-2 text-gray-500" />
             Collaborators
           </h3>
-          <button 
-            onClick={() => setShowAddMember(true)}
-            className="text-indigo-600 hover:text-indigo-700 text-sm font-medium flex items-center"
-          >
-            <UserPlus className="w-4 h-4 mr-1" />
-            Add Member
-          </button>
+          {isCurrentUserAdmin() && (
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="text-indigo-600 hover:text-indigo-700 text-sm font-medium flex items-center"
+            >
+              <UserPlus className="w-4 h-4 mr-1" />
+              Add Member
+            </button>
+          )}
         </div>
-        <div className="space-y-3">
-          {collaborators.map((collaborator) => (
-            <div key={collaborator.id} className="flex items-center justify-between group">
-              <div className="flex items-center space-x-3">
-                <div className="relative">
-                  <img
-                    src={collaborator.avatar}
-                    alt={collaborator.name}
-                    className={`w-8 h-8 rounded-full ${collaborator.isAdmin ? 'ring-2 ring-indigo-600 ring-offset-2' : ''}`}
-                  />
-                  {collaborator.isAdmin && (
-                    <Shield className="w-4 h-4 text-indigo-600 absolute -bottom-1 -right-1 bg-white rounded-full" />
-                  )}
+
+        {loading ? (
+          <div className="text-center text-gray-500 py-3">Loading collaborators...</div>
+        ) : error ? (
+          <div className="text-center text-red-500 py-3">{error}</div>
+        ) : collaborators.length === 0 ? (
+          <div className="text-center text-gray-500 py-3">No collaborators found</div>
+        ) : (
+          <div className="space-y-3">
+            {collaborators.map((collaborator) => (
+              <div key={collaborator.id} className="flex items-center justify-between group">
+                <div className="flex items-center space-x-3">
+                  <div className="relative">
+                    <img 
+                      src={collaborator.picture}
+                      alt={collaborator.name} 
+                      className={`w-8 h-8 rounded-full ${collaborator.is_admin ? 'ring-2 ring-indigo-600 ring-offset-2' : ''}`}
+                      referrerpolicy="no-referrer"
+                    />
+                    {collaborator.is_admin && (
+                      <Shield className="w-4 h-4 text-indigo-600 absolute -bottom-1 -right-1 bg-white rounded-full" />
+                    )}
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm text-gray-700">{collaborator.name}</span>
+                    {collaborator.is_admin && (
+                      <span className="text-xs text-indigo-600 font-medium">Admin</span>
+                    )}
+                  </div>
                 </div>
-                <div className="flex flex-col">
-                  <span className="text-sm text-gray-700">{collaborator.name}</span>
-                  {collaborator.isAdmin && (
-                    <span className="text-xs text-indigo-600 font-medium">Admin</span>
-                  )}
-                </div>
+                {isCurrentUserAdmin() && !collaborator.is_admin && (
+                  <button
+                    onClick={() => handleRemoveCollaborator(collaborator.id)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 hover:bg-red-50 rounded-full text-red-600"
+                    aria-label={`Remove ${collaborator.name}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </div>
-              {user?.isAdmin && !collaborator.isAdmin && (
-                <button 
-                  onClick={() => handleDeleteClick(collaborator)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 hover:bg-red-50 rounded-full text-red-600"
-                  aria-label={`Remove ${collaborator.name}`}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
-
-      {showDeleteConfirmation && selectedUser && (
-        <ConfirmationModal
-          title="Remove Collaborator"
-          message={`Are you sure you want to remove ${selectedUser.name} from this project? This action cannot be undone.`}
-          onConfirm={handleDeleteConfirm}
-          onCancel={() => {
-            setShowDeleteConfirmation(false);
-            setSelectedUser(null);
-          }}
-        />
-      )}
-
-      {showAddMember && (
-        <AddMemberModal
-          onAdd={handleAddMember}
-          onClose={() => setShowAddMember(false)}
+      
+      {showAddModal && (
+        <AddCollaboratorModal 
+          isOpen={showAddModal} 
+          onClose={() => setShowAddModal(false)} 
+          projectId={projectId}
+          onCollaboratorAdded={fetchCollaborators}
         />
       )}
     </>
