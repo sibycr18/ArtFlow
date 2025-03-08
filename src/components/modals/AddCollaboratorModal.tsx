@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { X, Search, Plus, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'wss://artflow-backend-64f27556b9a4.herokuapp.com';
 
 interface User {
   id: string;
