@@ -6,54 +6,63 @@ export interface StrokeStyle {
   globalCompositeOperation?: 'source-over' | 'destination-out';
 }
 
+// Optimized base drawing data with minimal required fields
 export interface BaseDrawingData {
-  type: DrawingTool;
-  color: string;
-  timestamp: number;
-  canvasWidth: number;
-  canvasHeight: number;
-  strokeWidth: number;
-  strokeStyle: StrokeStyle;
-  pressure?: number;
+  t: DrawingTool;  // shortened from 'type'
+  c: string;       // shortened from 'color'
+  ts: number;      // shortened from 'timestamp'
+  u: string;       // shortened from 'userId'
+  w: number;       // shortened from 'strokeWidth'
+  s?: StrokeStyle; // shortened from 'strokeStyle', made optional
 }
 
+// Optimized brush data
 export interface BrushData extends BaseDrawingData {
-  type: 'brush' | 'eraser';
-  isStartPoint: boolean;
+  t: 'brush' | 'eraser';
   x: number;
   y: number;
+  i: boolean;      // shortened from 'isStartPoint'
 }
 
-export interface RectangleData extends BaseDrawingData {
-  type: 'rectangle';
-  startX: number;
-  startY: number;
-  width: number;
-  height: number;
-  fill?: boolean;
-  fillColor?: string;
+// Optimized shape data
+export interface ShapeData extends BaseDrawingData {
+  x: number;       // start/center X
+  y: number;       // start/center Y
+  f?: boolean;     // shortened from 'fill'
+  fc?: string;     // shortened from 'fillColor'
 }
 
-export interface CircleData extends BaseDrawingData {
-  type: 'circle';
-  centerX: number;
-  centerY: number;
-  radius: number;
-  fill?: boolean;
-  fillColor?: string;
+// Specific shape interfaces
+export interface RectangleData extends ShapeData {
+  t: 'rectangle';
+  w: number;       // width
+  h: number;       // height
 }
 
-export interface TriangleData extends BaseDrawingData {
-  type: 'triangle';
-  startX: number;
-  startY: number;
-  size: number;
-  fill?: boolean;
-  fillColor?: string;
+export interface CircleData extends ShapeData {
+  t: 'circle';
+  r: number;       // radius
+}
+
+export interface TriangleData extends ShapeData {
+  t: 'triangle';
+  s: number;       // size
 }
 
 export type DrawingData = BrushData | RectangleData | CircleData | TriangleData;
 
+export interface DrawingHistoryEntry {
+  userId: string;
+  timestamp: number;
+  data: DrawingData;
+}
+
+export interface DrawingHistory {
+  fileId: string;
+  entries: DrawingHistoryEntry[];
+}
+
 export type WebSocketMessage = 
   | { type: 'draw'; data: DrawingData }
-  | { type: 'clear' }; 
+  | { type: 'clear' }
+  | { type: 'history_sync'; data: DrawingHistory }; 

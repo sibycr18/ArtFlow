@@ -18,12 +18,14 @@ interface DecodedCredential {
   exp: number;
 }
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
 export default function Login() {
   const { setUser } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const handleGoogleSuccess = (credentialResponse: GoogleCredentialResponse) => {
+  const handleGoogleSuccess = async (credentialResponse: GoogleCredentialResponse) => {
     try {
       console.log('Received Google credential response');
       
@@ -70,8 +72,30 @@ export default function Login() {
       }
       console.log('Email verification status confirmed');
 
-      console.log('Setting user data in context');
+      // Store user in database
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: decoded.email,
+          name: decoded.name,
+          picture: decoded.picture,
+          google_id: decoded.sub
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to store user in database');
+      }
+
+      const { user: dbUser } = await response.json();
+      console.log('User stored in database:', dbUser);
+
+      // Set user in context
       setUser({
+        id: dbUser.id,
         email: decoded.email,
         name: decoded.name,
         picture: decoded.picture,
