@@ -1,31 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { createClient } from '@supabase/supabase-js';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config';
-
-// Supabase client configuration
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-// Debug info
-console.log('Supabase URL:', supabaseUrl ? 'Available' : 'Missing');
-console.log('Supabase Key:', supabaseAnonKey ? 'Available' : 'Missing');
-
-// Initialize with real-time enabled
-const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  realtime: {
-    params: {
-      eventsPerSecond: 10
-    }
-  },
-  db: {
-    schema: 'public'
-  },
-  global: {
-    // Force debug mode in development
-    debug: import.meta.env.DEV
-  }
-});
+import supabase from '../utils/supabaseClient';
 
 interface Message {
   id: string;
@@ -90,7 +66,7 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
       // Only update state if component is still mounted
       if (isMounted.current) {
         // Helper function to get sender info
-        const getSender = async (userId) => {
+        const getSender = async (userId: string) => {
           if (userId === user.id) {
             return {
               id: user.id,
@@ -131,9 +107,9 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
         
         // Process messages to include proper user data
         const messagesWithUserData = await Promise.all(
-          data.map(async (msg) => {
+          data.map(async (msg: any) => {
             const sender = await getSender(msg.user_id);
-            
+              
             return {
               id: msg.id,
               content: msg.content,
@@ -154,7 +130,7 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
         setIsLoading(false);
       }
     }
-  }, [projectId, user, supabase]);
+  }, [projectId, user]);
 
   // Direct Supabase query as fallback
   const fetchMessagesDirectly = useCallback(async () => {
@@ -185,7 +161,7 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
       // Only update state if component is still mounted
       if (isMounted.current) {
         // Helper function to get sender info
-        const getSender = async (userId) => {
+        const getSender = async (userId: string) => {
           if (userId === user.id) {
             return {
               id: user.id,
@@ -226,9 +202,9 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
         
         // Process messages with user information
         const messagesWithUserData = await Promise.all(
-          data.map(async (msg) => {
+          data.map(async (msg: any) => {
             const sender = await getSender(msg.user_id);
-            
+              
             return {
               id: msg.id,
               content: msg.content,
@@ -245,7 +221,7 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
     } catch (error) {
       console.error('Error in direct Supabase fetch:', error);
     }
-  }, [projectId, user, supabase]);
+  }, [projectId, user]);
 
   // Set up real-time subscription and cleanup
   useEffect(() => {
@@ -260,7 +236,7 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
     fetchMessages();
     
     // Helper function to get sender info
-    const getSender = async (userId) => {
+    const getSender = async (userId: string) => {
       if (userId === user.id) {
         return {
           id: user.id,
@@ -311,7 +287,7 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
         schema: 'public', 
         table: 'project_messages',
         filter: `project_id=eq.${projectId}`
-      }, async (payload) => {
+      }, async (payload: any) => {
         console.log(`⚡ Real-time event received:`, payload);
         
         // Only process INSERT events
@@ -351,7 +327,7 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
           );
         });
       })
-      .subscribe((status) => {
+      .subscribe((status: string) => {
         console.log(`📶 Subscription status: ${status}`);
         
         if (isMounted.current) {
@@ -470,21 +446,17 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
             
           if (error) {
             console.error('⚠️ Error with direct insert:', error);
-          } else {
+          } else if (data && data.length > 0) {
             console.log('✅ Direct insert successful:', data);
             
             // Replace temp message with the real one if we got data back
-            if (data && data.length > 0 && isMounted.current) {
+            if (isMounted.current) {
               setMessages(prev => {
                 const filtered = prev.filter(msg => msg.id !== tempId);
-                const newMsg = {
+                const newMsg: Message = {
                   id: data[0].id,
                   content: data[0].content,
-                  sender: {
-                    id: user.id,
-                    name: user.name || 'You',
-                    avatar: user.picture || 'https://via.placeholder.com/32'
-                  },
+                  sender: userInfo,
                   timestamp: new Date(data[0].created_at)
                 };
                 return [...filtered, newMsg];
