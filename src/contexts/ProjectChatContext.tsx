@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE_URL } from '../config';
 
 // Supabase client configuration
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -25,8 +26,6 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     debug: import.meta.env.DEV
   }
 });
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://artflow-backend-64f27556b9a4.herokuapp.com';
 
 interface Message {
   id: string;

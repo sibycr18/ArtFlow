@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { UserPlus, Users, Shield, Trash2 } from 'lucide-react';
 import AddCollaboratorModal from './modals/AddCollaboratorModal';
 import { useAuth } from '../context/AuthContext';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://artflow-backend-64f27556b9a4.herokuapp.com';
+import { API_BASE_URL } from '../config';
 
 interface Collaborator {
   id: string;
