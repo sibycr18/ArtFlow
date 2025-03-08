@@ -124,7 +124,7 @@ export default function CollaboratorsList({ projectId }: CollaboratorsListProps)
                       src={collaborator.picture}
                       alt={collaborator.name} 
                       className={`w-8 h-8 rounded-full ${collaborator.is_admin ? 'ring-2 ring-indigo-600 ring-offset-2' : ''}`}
-                      referrerpolicy="no-referrer"
+                      referrerPolicy="no-referrer"
                     />
                     {collaborator.is_admin && (
                       <Shield className="w-4 h-4 text-indigo-600 absolute -bottom-1 -right-1 bg-white rounded-full" />

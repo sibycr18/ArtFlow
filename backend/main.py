@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, HTTPException
+from fastapi import FastAPI, WebSocket, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, List, Optional
 import logging
@@ -13,7 +13,7 @@ from database import (
     search_users_by_email, create_project, add_collaborator, 
     remove_collaborator, get_project_collaborators, get_project_by_id,
     create_project_via_rpc, get_user_projects, create_file, get_project_files,
-    update_file, delete_file
+    update_file, delete_file, add_project_message, get_project_messages
 )
 import asyncio
 from pydantic import BaseModel
@@ -59,6 +59,7 @@ app = FastAPI()
 # Add CORS middleware with production configuration
 ALLOWED_ORIGINS = [
     "http://localhost:5173",  # Local development
+    "http://localhost:5174",
     "https://art-flow-neon.vercel.app"  # Production frontend
 ]
 
@@ -93,6 +94,11 @@ class FileCreate(BaseModel):
 class FileUpdate(BaseModel):
     name: Optional[str] = None
     file_type: Optional[str] = None
+
+class ProjectMessageData(BaseModel):
+    project_id: str
+    user_id: str
+    content: str
 
 @app.post("/auth/login")
 async def login(user_data: UserData):
@@ -599,6 +605,46 @@ async def delete_file_endpoint(file_id: str):
         return {"message": "File deleted successfully"}
     except Exception as e:
         logger.error(f"Delete file error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/projects/messages")
+async def add_message_to_project(data: ProjectMessageData):
+    try:
+        logger.info(f"Received message request: {data}")
+        
+        # Explicitly log parameters for clarity
+        logger.info(f"Adding message: project_id={data.project_id}, user_id={data.user_id}, content={data.content[:20]}...")
+        
+        result = await add_project_message(data.project_id, data.user_id, data.content)
+        if "error" in result:
+            logger.error(f"Error adding message: {result['error']}")
+            raise HTTPException(status_code=403, detail=result["error"])
+            
+        logger.info(f"Message added successfully, returning: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"Add project message error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/projects/{project_id}/messages")
+async def get_project_message_history(
+    project_id: str, 
+    user_id: str, 
+    limit: int = Query(50, ge=1, le=100)
+):
+    try:
+        logger.info(f"Fetching messages: project_id={project_id}, user_id={user_id}, limit={limit}")
+        
+        messages = await get_project_messages(project_id, user_id, limit)
+        
+        logger.info(f"Retrieved {len(messages)} messages")
+        # Log a sample message if available
+        if messages:
+            logger.info(f"Sample message: {messages[0]}")
+            
+        return messages
+    except Exception as e:
+        logger.error(f"Get project messages error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
