@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { DrawingData, WebSocketMessage } from '../types/canvas';
 import throttle from 'lodash/throttle';
+import { WS_URL } from '../config';
 
 // Custom logger
 const logger = {
@@ -19,7 +20,6 @@ const logger = {
 };
 
 // Constants
-const WS_URL = import.meta.env.VITE_WS_URL || 'wss://artflow-backend-64f27556b9a4.herokuapp.com';
 const RECONNECT_INTERVAL = 3000; // 3 seconds
 const MAX_RECONNECT_ATTEMPTS = 5;
 const THROTTLE_INTERVAL = 16; // ~60fps
