@@ -6,6 +6,7 @@ yarn-error.log
 .npm
 .pnp
 .pnp.js
+supabase/
 
 # Build outputs
 dist
