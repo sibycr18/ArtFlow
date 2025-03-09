@@ -1,7 +1,10 @@
+// Frontend file types that match what our UI expects
+export type UIFileType = 'canvas' | 'image' | 'document';
+
 export interface File {
   id: string;
   name: string;
-  type: 'canvas' | 'image' | 'document';
+  type: UIFileType;
   lastModified: string;
 }
 

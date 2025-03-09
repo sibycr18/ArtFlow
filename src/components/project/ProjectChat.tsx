@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { MessageCircle, X, GripHorizontal } from 'lucide-react';
+import { MessageCircle, X, GripHorizontal, AlertCircle } from 'lucide-react';
 import ChatMessage from '../chat/ChatMessage';
 import ChatInput from '../chat/ChatInput';
 import { useProjectChat } from '../../contexts/ProjectChatContext';
@@ -13,6 +13,7 @@ export default function ProjectChat() {
   const [isDragging, setIsDragging] = useState(false);
   const [isButtonDragging, setIsButtonDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [connectionError, setConnectionError] = useState(false);
   const dragRef = useRef<{ startX: number; startY: number; initialX: number; initialY: number }>();
   const chatRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLDivElement>(null);
@@ -24,6 +25,25 @@ export default function ProjectChat() {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages]);
+
+  // Connection status checker
+  useEffect(() => {
+    // A simple way to detect if messages aren't loading properly
+    let errorTimer: NodeJS.Timeout;
+    
+    if (isOpen && isLoading) {
+      // If loading takes too long, show connection error
+      errorTimer = setTimeout(() => {
+        setConnectionError(true);
+      }, 10000); // 10 seconds timeout
+    } else {
+      setConnectionError(false);
+    }
+    
+    return () => {
+      clearTimeout(errorTimer);
+    };
+  }, [isOpen, isLoading]);
 
   // Calculate chat position based on button position and available space
   const getChatPosition = () => {
@@ -223,6 +243,13 @@ export default function ProjectChat() {
           </div>
           
           <div className="h-96 flex flex-col">
+            {connectionError && (
+              <div className="bg-red-50 border-b border-red-100 p-2 flex items-center justify-center space-x-2">
+                <AlertCircle className="w-4 h-4 text-red-500" />
+                <span className="text-sm text-red-600">Connection issue. Messages may not be live.</span>
+              </div>
+            )}
+            
             <div className="flex-1 overflow-y-auto p-4 space-y-2" id="chat-messages-container">
               {isLoading && messages.length === 0 ? (
                 <div className="flex items-center justify-center h-full">

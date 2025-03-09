@@ -3,8 +3,7 @@
 // API base URL with environment variable fallback
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://artflow-backend-64f27556b9a4.herokuapp.com';
 
-// Fix the WebSocket URL to ensure it has the correct format with double slashes
-// export const WS_URL = import.meta.env.VITE_WS_URL || 'wss://artflow-backend-64f27556b9a4.herokuapp.com';
+// WebSocket URL for real-time communication
 export const WS_URL = 'wss://artflow-backend-64f27556b9a4.herokuapp.com';
 
 // Supabase Configuration
@@ -23,11 +22,7 @@ export const SUPABASE_REALTIME_CONFIG = {
   }
 };
 
-// Other configuration constants can be added here 
-
 // Application config constants
-
-// Add other config variables here
 export const APP_NAME = 'ArtFlow';
 export const APP_VERSION = '1.0.0';
 
