@@ -156,7 +156,7 @@ export default function ProjectView() {
             </div>
           </div>
         </div>
-        <ProjectChat />
+        <ProjectChat key={`chat-${project.id}`} />
       </>
     </ProjectChatProvider>
   );

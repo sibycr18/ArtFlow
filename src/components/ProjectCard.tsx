@@ -56,13 +56,13 @@ export default function ProjectCard({ project }: ProjectCardProps) {
         onContextMenu={handleContextMenu}
       >
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <div className="p-1.5 bg-indigo-50 rounded-lg">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 bg-indigo-50 rounded-lg">
               <Folder className="w-5 h-5 text-indigo-600" />
             </div>
             <div>
-              <h3 className="font-medium text-gray-900 text-sm line-clamp-1">{project.name}</h3>
-              <div className="flex items-center space-x-1 mt-0.5">
+              <h3 className="font-medium text-gray-900 line-clamp-1">{project.name}</h3>
+              <div className="flex items-center space-x-1 mt-1">
                 <FileIcon className="w-3 h-3 text-gray-400" />
                 <span className="text-xs text-gray-500">
                   {project.files.length} files
@@ -70,7 +70,6 @@ export default function ProjectCard({ project }: ProjectCardProps) {
               </div>
             </div>
           </div>
-          <span className="text-xs text-gray-400">{project.lastModified}</span>
         </div>
       </Link>
 

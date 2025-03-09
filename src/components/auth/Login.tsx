@@ -3,6 +3,7 @@ import { jwtDecode } from 'jwt-decode';
 import { useAuth } from '../../context/AuthContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Palette, PaintBucket, Brush, Shapes, Sparkles, Pencil, Image, Sticker } from 'lucide-react';
+import { API_BASE_URL } from '../../config';
 
 interface GoogleCredentialResponse {
   credential?: string;
@@ -17,8 +18,6 @@ interface DecodedCredential {
   aud: string;
   exp: number;
 }
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export default function Login() {
   const { setUser } = useAuth();

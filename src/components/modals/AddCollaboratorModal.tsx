@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { X, Search, Plus, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+import { API_BASE_URL } from '../../config';
 
 interface User {
   id: string;
@@ -160,7 +159,7 @@ export default function AddCollaboratorModal({
                           src={result.picture} 
                           alt={result.name} 
                           className="w-8 h-8 rounded-full object-cover"
-                          referrerpolicy="no-referrer"
+                          referrerPolicy="no-referrer"
                         />
                       )}
                       <div>

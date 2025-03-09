@@ -1,6 +1,7 @@
 import React from 'react';
 import { MessageCircle } from 'lucide-react';
 import Draggable from 'react-draggable';
+import { useProjectChat } from '../../contexts/ProjectChatContext';
 
 interface ChatButtonProps {
   position: { x: number; y: number };
@@ -11,6 +12,8 @@ interface ChatButtonProps {
 }
 
 export default function ChatButton({ position, onDragStart, onDrag, onDragStop, nodeRef }: ChatButtonProps) {
+  const { toggleChat } = useProjectChat();
+
   return (
     <Draggable
       nodeRef={nodeRef}
@@ -28,6 +31,10 @@ export default function ChatButton({ position, onDragStart, onDrag, onDragStop, 
         <button 
           className="p-4 bg-indigo-600 text-white rounded-full shadow-lg hover:bg-indigo-700 transition-all cursor-move"
           aria-label="Open chat"
+          onClick={(e) => {
+            e.stopPropagation(); // Prevent drag from triggering when clicking
+            toggleChat();
+          }}
         >
           <MessageCircle className="w-6 h-6" />
         </button>

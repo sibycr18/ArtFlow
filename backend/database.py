@@ -466,4 +466,130 @@ async def delete_file(file_id: str) -> bool:
         return len(response.data) > 0
     except Exception as e:
         logger.error(f"Error in delete_file: {str(e)}")
-        return False 
+        return False
+
+# Project Messages functions
+async def add_project_message(project_id: str, user_id: str, content: str) -> Dict:
+    try:
+        # Log the incoming request
+        logger.info(f"Adding message to project {project_id} from user {user_id}: {content[:50]}...")
+        
+        # First check if user has access to the project
+        response = supabase_admin.table('projects').select('id, admin_id, collaborators').eq('id', project_id).execute()
+        
+        if not response.data:
+            logger.error(f"Project not found: {project_id}")
+            return {"error": "Project not found"}
+        
+        project = response.data[0]
+        logger.info(f"Project found: {project}")
+        
+        # Check if user has access
+        has_access = False
+        if project['admin_id'] == user_id:
+            has_access = True
+            logger.info(f"User {user_id} is admin of project {project_id}")
+        elif 'collaborators' in project and user_id in project['collaborators']:
+            has_access = True
+            logger.info(f"User {user_id} is collaborator of project {project_id}")
+        
+        if not has_access:
+            logger.error(f"User does not have access to this project: {user_id}, {project_id}")
+            return {"error": "Access denied"}
+        
+        # Insert the message
+        message_data = {
+            "project_id": project_id,
+            "user_id": user_id,
+            "content": content,
+            "is_system_message": False
+        }
+        logger.info(f"Inserting message data: {message_data}")
+        
+        response = supabase_admin.table('project_messages').insert(message_data).execute()
+        
+        if not response.data:
+            logger.error("No data returned from message insert")
+            return {"error": "Failed to insert message"}
+            
+        logger.info(f"Message added: {response.data}")
+        return response.data[0] if response.data else {}
+    except Exception as e:
+        logger.error(f"Error in add_project_message: {str(e)}")
+        return {"error": str(e)}
+
+async def get_project_messages(project_id: str, user_id: str, limit: int = 50) -> List[Dict]:
+    try:
+        logger.info(f"Getting messages for project {project_id} for user {user_id} (limit: {limit})")
+        
+        # First check if user has access to the project
+        response = supabase_admin.table('projects').select('id, admin_id, collaborators').eq('id', project_id).execute()
+        logger.info(f"Projects query response: {response}")
+        
+        if not response.data:
+            logger.error(f"Project not found: {project_id}")
+            return []
+        
+        project = response.data[0]
+        logger.info(f"Project found: {project}")
+        
+        # Check if user has access
+        has_access = False
+        if project['admin_id'] == user_id:
+            has_access = True
+            logger.info(f"User {user_id} is admin of project {project_id}")
+        elif project.get('collaborators') and user_id in project.get('collaborators', []):
+            has_access = True
+            logger.info(f"User {user_id} is collaborator of project {project_id}")
+        
+        if not has_access:
+            logger.error(f"User does not have access to this project: {user_id}, {project_id}")
+            return []
+        
+        # Get messages with all fields, no joins to avoid issues
+        logger.info(f"Fetching messages for project {project_id}")
+        
+        try:
+            # First try using direct admin query for maximum reliability
+            response = supabase_admin.table('project_messages').select('*').eq('project_id', project_id).order('created_at', {"ascending": True}).limit(limit).execute()
+            
+            if not response.data and not isinstance(response.data, list):
+                logger.error(f"Invalid response from Supabase: {response}")
+                return []
+                
+            logger.info(f"Found {len(response.data)} messages via admin query")
+            
+            # Log the first message for debugging
+            if response.data:
+                logger.info(f"Sample message: {response.data[0]}")
+            
+            return response.data
+        except Exception as inner_error:
+            logger.error(f"Error in admin query: {str(inner_error)}")
+            
+            # Fallback to direct SQL query as last resort
+            try:
+                # Use raw SQL query to bypass potential RLS issues
+                sql = f"""
+                SELECT * FROM public.project_messages 
+                WHERE project_id = '{project_id}'
+                ORDER BY created_at ASC
+                LIMIT {limit}
+                """
+                response = supabase_admin.execute_sql(sql)
+                
+                if not hasattr(response, 'data') or not response.data:
+                    logger.error("SQL query returned no data")
+                    return []
+                    
+                # Parse the JSON result
+                messages = response.data
+                logger.info(f"Retrieved {len(messages)} messages via SQL query")
+                
+                return messages
+            except Exception as sql_error:
+                logger.error(f"Error in SQL fallback: {str(sql_error)}")
+                return []
+    except Exception as e:
+        logger.error(f"Error in get_project_messages: {str(e)}")
+        return [] 

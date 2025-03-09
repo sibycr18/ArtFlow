@@ -4,8 +4,7 @@ import { useProjects } from '../contexts/ProjectContext';
 import CollaboratorsList from '../components/CollaboratorsList';
 import { Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+import { API_BASE_URL } from '../config';
 
 interface ProjectDetails {
   id: string;

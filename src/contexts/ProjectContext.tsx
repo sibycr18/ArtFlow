@@ -1,13 +1,12 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Project } from '../types';
+// Define UIFileType here in case of import issues
+type UIFileType = 'canvas' | 'image' | 'document';
+
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { Project, File } from '../types';
 import { projects as initialProjects } from '../data/mockData';
 import { useAuth } from '../context/AuthContext';
-import { fileService, FileMetadata, FileType } from "../services/fileService";
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-
-// Log initial mock data
-console.log('Loading mock data:', initialProjects);
+import { fileService, FileMetadata, FileType as BackendFileType } from "../services/fileService";
+import { API_BASE_URL } from '../config';
 
 interface ProjectContextType {
   projects: Project[];
@@ -16,135 +15,114 @@ interface ProjectContextType {
   renameProject: (id: string, newName: string) => void;
   renameFile: (projectId: string, fileId: string, newName: string) => void;
   files: FileMetadata[];
-  createFile: (projectId: string, name: string, type: FileType) => Promise<FileMetadata | null>;
-  deleteFile: (fileId: string) => Promise<boolean>;
+  createFile: (projectId: string, name: string, type: UIFileType) => Promise<FileMetadata | null>;
+  deleteFile: (projectId: string, fileId: string) => Promise<boolean>;
   openProject: (projectId: string) => Promise<any>;
   currentProject: Project | null;
+  isLoading: boolean;
 }
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 
 export function ProjectProvider({ children }: { children: React.ReactNode }) {
-  console.log('ProjectProvider initializing with:', initialProjects);
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { user } = useAuth();
-  console.log('ProjectProvider: user from useAuth =', user);
   const [currentProject, setCurrentProject] = useState<Project | null>(null);
   const [files, setFiles] = useState<FileMetadata[]>([]);
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+  const isFetchingRef = useRef(false);
 
-  // Add this useEffect to fetch projects when user is logged in
+  // Fetch projects from the backend
   useEffect(() => {
     const fetchProjects = async () => {
-      console.log("fetchProjects called with user:", user);
-      if (!user?.id) {
-        console.log("No user ID, skipping project fetch");
+      // Skip if no user or already fetching
+      if (!user?.id || isFetchingRef.current) {
         return;
       }
-      
-      if (isLoading) {
-        console.log("Already loading, skipping project fetch");
-        return;
-      }
-      
+
+      // Set both the state and ref to indicate loading
+      setIsLoading(true);
+      isFetchingRef.current = true;
+
       try {
-        console.log("Setting isLoading to true");
-        setIsLoading(true);
-        console.log(`Fetching projects from ${API_BASE_URL}/projects?user_id=${user.id}`);
         const response = await fetch(`${API_BASE_URL}/projects?user_id=${user.id}`);
         
         if (!response.ok) {
-          console.error(`Failed to fetch projects: ${response.status} ${response.statusText}`);
           throw new Error('Failed to fetch projects');
         }
         
         const data = await response.json();
-        console.log("Projects fetched successfully:", data);
         
-        // Transform the data to match the Project interface
-        const formattedProjects: Project[] = data.map((project: any) => ({
-          id: project.id,
-          name: project.name,
-          lastModified: new Date(project.created_at).toLocaleString(),
-          files: [] // We'll need to implement file fetching separately
+        // Transform data to match the Project type
+        const formattedProjects = await Promise.all(data.map(async (project: any) => {
+          // Fetch files for each project
+          const projectFiles = await fetchProjectFiles(project.id);
+          
+          // Map FileMetadata to File interface
+          const mappedFiles = projectFiles.map(file => ({
+            id: file.id,
+            name: file.name,
+            type: mapBackendToUIFileType(file.file_type),
+            lastModified: new Date(file.updated_at).toLocaleDateString()
+          }));
+          
+          return {
+            id: project.id,
+            name: project.name,
+            lastModified: new Date(project.created_at).toLocaleDateString(),
+            files: mappedFiles
+          };
         }));
         
-        console.log("Setting projects:", formattedProjects);
         setProjects(formattedProjects);
       } catch (error) {
-        console.error('Error fetching projects:', error);
+        console.error("Error fetching projects:", error);
       } finally {
-        console.log("Setting isLoading to false");
+        // Reset both state and ref when done
         setIsLoading(false);
+        isFetchingRef.current = false;
       }
     };
-    
+
     fetchProjects();
+    
+    // Only re-run when user changes, not when isLoading changes
   }, [user?.id]);
 
-  // Update the useEffect that fetches project files when projects change
-  useEffect(() => {
-    const updateProjectsWithFiles = async () => {
-      if (projects.length === 0) return;
-      
-      // Create a copy to avoid changing the state while iterating, which can cause infinite loops
-      const projectsToUpdate = [...projects];
-      const updatedProjects = [];
-      let hasChanges = false;
-      
-      try {
-        for (let i = 0; i < projectsToUpdate.length; i++) {
-          const project = projectsToUpdate[i];
-          
-          // Skip projects that already have files loaded
-          if (project.files && project.files.length > 0) {
-            updatedProjects.push(project);
-            continue;
-          }
-          
-          const projectFiles = await fileService.getProjectFiles(project.id);
-          
-          if (projectFiles.length > 0) {
-            hasChanges = true;
-            updatedProjects.push({
-              ...project,
-              files: projectFiles.map(file => ({
-                id: file.id,
-                name: file.name,
-                type: file.file_type as 'canvas' | 'image' | 'document',
-                lastModified: new Date(file.updated_at).toLocaleString()
-              }))
-            });
-          } else {
-            updatedProjects.push(project);
-          }
-        }
-        
-        // Only update state if there were actually changes
-        if (hasChanges) {
-          setProjects(updatedProjects);
-        }
-      } catch (error) {
-        console.error('Error fetching project files:', error);
-      }
-    };
-    
-    // Use a ref to ensure this only runs once per project load
-    const timeoutId = setTimeout(() => {
-      updateProjectsWithFiles();
-    }, 500); // Add a small delay to avoid rapid consecutive calls
-    
-    return () => clearTimeout(timeoutId);
-  }, [projects.length]);
-
-  const addProject = async (name: string): Promise<Project | null> => {
-    if (!user?.id) {
-      console.error('Cannot create project: User not logged in');
-      return null;
+  // Helper function to map backend file type to UI file type
+  const mapBackendToUIFileType = (fileType: BackendFileType): UIFileType => {
+    switch (fileType) {
+      case 'drawing':
+        return 'canvas';
+      case 'text':
+        return 'document';
+      case 'model':
+        return 'image';
+      default:
+        return 'document';
     }
+  };
 
+  // Helper function to map UI file type to backend file type
+  const mapUIToBackendFileType = (type: UIFileType): BackendFileType => {
+    switch (type) {
+      case 'canvas':
+        return 'drawing';
+      case 'document':
+        return 'text';
+      case 'image':
+        return 'model';
+      default:
+        return 'text';
+    }
+  };
+
+  // Add a new project
+  const addProject = async (name: string): Promise<Project | null> => {
+    if (!user?.id) return null;
+    
     try {
-      // Create project in backend
       const response = await fetch(`${API_BASE_URL}/projects`, {
         method: 'POST',
         headers: {
@@ -152,55 +130,57 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
         },
         body: JSON.stringify({
           name,
-          admin_id: user.id
+          user_id: user.id
         })
       });
-
+      
       if (!response.ok) {
         throw new Error('Failed to create project');
       }
-
+      
       const projectData = await response.json();
-      console.log('Project created in backend:', projectData);
-
-      // Format the project for frontend
+      
       const newProject: Project = {
         id: projectData.id,
         name: projectData.name,
-        lastModified: new Date(projectData.created_at).toLocaleString(),
+        lastModified: new Date().toLocaleDateString(),
         files: []
       };
-
-      setProjects([newProject, ...projects]);
+      
+      setProjects(prev => [...prev, newProject]);
       return newProject;
     } catch (error) {
-      console.error('Error creating project:', error);
+      console.error("Error adding project:", error);
       return null;
     }
   };
 
+  // Delete a project
   const deleteProject = (id: string) => {
-    setProjects(projects.filter(project => project.id !== id));
+    setProjects(prev => prev.filter(p => p.id !== id));
   };
 
+  // Rename a project
   const renameProject = (id: string, newName: string) => {
-    setProjects(projects.map(project => 
-      project.id === id ? { ...project, name: newName } : project
-    ));
+    setProjects(prev => prev.map(p => p.id === id ? { ...p, name: newName } : p));
   };
 
-  const deleteFile = async (fileId: string) => {
+  // Delete a file
+  const deleteFile = async (projectId: string, fileId: string): Promise<boolean> => {
     try {
       await fileService.deleteFile(fileId);
       
       // Update files state
       setFiles(prevFiles => prevFiles.filter(file => file.id !== fileId));
       
-      // Update current project
-      if (currentProject) {
-        setCurrentProject({
-          ...currentProject,
-          files: currentProject.files.filter(file => file.id !== fileId)
+      // Update current project if needed
+      if (currentProject && currentProject.id === projectId) {
+        setCurrentProject(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            files: prev.files.filter(file => file.id !== fileId)
+          };
         });
       }
       
@@ -211,35 +191,36 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Rename a file
   const renameFile = (projectId: string, fileId: string, newName: string) => {
-    setProjects(projects.map(project => {
-      if (project.id === projectId) {
-        return {
-          ...project,
-          lastModified: 'Just now',
-          files: project.files.map(file =>
-            file.id === fileId ? { ...file, name: newName } : file
-          )
-        };
-      }
-      return project;
-    }));
+    // Here we would typically call an API to update the file name
+    // For now, we'll just update the local state
+    setFiles(prevFiles => 
+      prevFiles.map(file => 
+        file.id === fileId ? {...file, name: newName} : file
+      )
+    );
   };
 
+  // Fetch files for a project
   const fetchProjectFiles = async (projectId: string) => {
     try {
-      const projectFiles = await fileService.getProjectFiles(projectId);
-      setFiles(projectFiles);
-      return projectFiles;
+      const files = await fileService.getProjectFiles(projectId);
+      return files;
     } catch (error) {
       console.error("Error fetching project files:", error);
       return [];
     }
   };
 
-  const openProject = useCallback(async (projectId: string) => {
+  // Open a project and load its files
+  const openProject = async (projectId: string) => {
+    if (loadedProjectId === projectId && currentProject) {
+      return currentProject;
+    }
+    
     try {
-      // Fetch project details
+      // Fetch project details from the backend
       const response = await fetch(`${API_BASE_URL}/projects/${projectId}?user_id=${user?.id}`);
       
       if (!response.ok) {
@@ -248,59 +229,65 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       
       const projectData = await response.json();
       
-      // Fetch project files
-      const projectFiles = await fileService.getProjectFiles(projectId);
+      // Fetch files for this project
+      const files = await fetchProjectFiles(projectId);
+      const mappedFiles = files.map(file => ({
+        id: file.id,
+        name: file.name,
+        type: mapBackendToUIFileType(file.file_type),
+        lastModified: new Date(file.updated_at).toLocaleDateString()
+      }));
       
-      // Format the project for frontend
-      const projectDetails: Project = {
+      // Transform project data
+      const project: Project = {
         id: projectData.id,
         name: projectData.name,
-        lastModified: new Date(projectData.updated_at).toLocaleString(),
-        files: projectFiles.map(file => ({
-          id: file.id,
-          name: file.name,
-          type: file.file_type as 'canvas' | 'image' | 'document',
-          lastModified: new Date(file.updated_at).toLocaleString()
-        }))
+        lastModified: new Date(projectData.created_at).toLocaleDateString(),
+        files: mappedFiles
       };
       
-      // Update current project
-      setCurrentProject(projectDetails);
+      // Update state
+      setCurrentProject(project);
+      setFiles(files);
+      setLoadedProjectId(projectId);
       
-      // Update the project in the projects list
-      setProjects(prevProjects => {
-        const projectIndex = prevProjects.findIndex(p => p.id === projectId);
-        if (projectIndex === -1) {
-          return [...prevProjects, projectDetails];
-        } else {
-          const updatedProjects = [...prevProjects];
-          updatedProjects[projectIndex] = projectDetails;
-          return updatedProjects;
-        }
-      });
-      
-      return projectDetails;
+      return project;
     } catch (error) {
-      console.error('Error opening project:', error);
-      return null;
+      console.error("Error opening project:", error);
+      throw error;
     }
-  }, [user?.id]);
+  };
 
-  const createFile = useCallback(async (projectId: string, name: string, type: FileType) => {
+  // Create a new file in a project
+  const createFile = async (projectId: string, name: string, type: UIFileType): Promise<FileMetadata | null> => {
     if (!user?.id) return null;
     
     try {
-      const newFile = await fileService.createFile(projectId, name, type, user.id);
+      // Convert the UI type to backend file_type for the API
+      const fileType = mapUIToBackendFileType(type);
+      const newFile = await fileService.createFile(projectId, name, fileType, user.id);
       
-      // Update files state
-      setFiles(prevFiles => [...prevFiles, newFile]);
-      
-      // Update current project
-      if (currentProject && currentProject.id === projectId) {
-        setCurrentProject({
-          ...currentProject,
-          files: [...currentProject.files, newFile]
-        });
+      if (newFile) {
+        setFiles(prev => [...prev, newFile]);
+        
+        // Also update the current project's files array
+        if (currentProject && currentProject.id === projectId) {
+          // Map the new file to the File interface
+          const mappedFile: File = {
+            id: newFile.id,
+            name: newFile.name,
+            type: mapBackendToUIFileType(newFile.file_type),
+            lastModified: new Date(newFile.updated_at).toLocaleDateString()
+          };
+          
+          setCurrentProject(prev => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              files: [...prev.files, mappedFile]
+            };
+          });
+        }
       }
       
       return newFile;
@@ -308,7 +295,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       console.error("Error creating file:", error);
       return null;
     }
-  }, [user?.id, currentProject]);
+  };
 
   const value = {
     projects,
@@ -320,10 +307,9 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     createFile,
     deleteFile,
     openProject,
-    currentProject
+    currentProject,
+    isLoading
   };
-
-  console.log('ProjectProvider value:', value);
 
   return (
     <ProjectContext.Provider value={value}>
