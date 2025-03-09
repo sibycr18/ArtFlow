@@ -6,7 +6,7 @@ import { useProjectChat } from '../../contexts/ProjectChatContext';
 import { useAuth } from '../../context/AuthContext';
 
 export default function ProjectChat() {
-  const { messages, isOpen, toggleChat, sendMessage, isLoading } = useProjectChat();
+  const { messages, isOpen, toggleChat, sendMessage, isLoading, isSending, channelStatus, isConnecting } = useProjectChat();
   const { user } = useAuth();
   const [message, setMessage] = useState('');
   const [buttonPosition, setButtonPosition] = useState({ x: window.innerWidth - 88, y: window.innerHeight - 88 });
@@ -201,7 +201,7 @@ export default function ProjectChat() {
   };
 
   const handleSendMessage = () => {
-    if (message.trim()) {
+    if (message.trim() && !isSending) {
       sendMessage(message.trim());
       setMessage('');
     }
@@ -233,6 +233,9 @@ export default function ProjectChat() {
             <div className="flex items-center gap-2">
               <GripHorizontal className="w-5 h-5 text-purple-400" />
               <h3 className="font-medium text-gray-900">Project Chat</h3>
+              {(isLoading || isConnecting) && (
+                <div className="w-3 h-3 rounded-full bg-purple-500 animate-pulse ml-1"></div>
+              )}
             </div>
             <button
               onClick={toggleChat}
@@ -251,9 +254,25 @@ export default function ProjectChat() {
             )}
             
             <div className="flex-1 overflow-y-auto p-4 space-y-2" id="chat-messages-container">
-              {isLoading && messages.length === 0 ? (
-                <div className="flex items-center justify-center h-full">
-                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-600"></div>
+              {(isLoading || isConnecting) && messages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full">
+                  <div className="relative">
+                    {/* Inner spinning loader */}
+                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-600"></div>
+                    
+                    {/* Outer pulsing circle */}
+                    <div className="absolute inset-0 rounded-full animate-pulse bg-purple-100 opacity-30 -z-10 h-12 w-12"></div>
+                    
+                    {/* Center dot */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="h-2 w-2 rounded-full bg-purple-600"></div>
+                    </div>
+                  </div>
+                  
+                  {/* Loading text */}
+                  <p className="text-purple-600 text-sm mt-3 animate-pulse">
+                    {isConnecting ? "Connecting to chat..." : "Loading messages..."}
+                  </p>
                 </div>
               ) : messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-gray-500 text-center">
@@ -271,6 +290,19 @@ export default function ProjectChat() {
                       senderName={msg.sender.name}
                     />
                   ))}
+                  
+                  {/* Show loading indicator for subsequent message loading */}
+                  {(isLoading || isSending || isConnecting) && messages.length > 0 && (
+                    <div className="flex items-center space-x-2 animate-pulse">
+                      <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center">
+                        <div className="w-4 h-4 rounded-full border-2 border-purple-500 border-t-transparent animate-spin"></div>
+                      </div>
+                      <div className="px-3 py-2 bg-purple-100 rounded-lg">
+                        <div className="h-2 w-24 bg-purple-200 rounded"></div>
+                      </div>
+                    </div>
+                  )}
+                  
                   <div ref={messagesEndRef} />
                 </>
               )}
@@ -280,6 +312,7 @@ export default function ProjectChat() {
               message={message}
               onChange={(e) => setMessage(e.target.value)}
               onSend={handleSendMessage}
+              sending={isSending}
             />
           </div>
         </div>

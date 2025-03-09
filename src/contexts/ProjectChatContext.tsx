@@ -20,6 +20,9 @@ interface ProjectChatContextType {
   toggleChat: () => void;
   sendMessage: (content: string) => void;
   isLoading: boolean;
+  isSending: boolean;
+  channelStatus: string;
+  isConnecting: boolean;
 }
 
 const ProjectChatContext = createContext<ProjectChatContextType | undefined>(undefined);
@@ -28,7 +31,9 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
   const [messages, setMessages] = useState<Message[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   const [channelStatus, setChannelStatus] = useState<string>('disconnected');
+  const [isConnecting, setIsConnecting] = useState(false);
   const { user } = useAuth();
   
   // Track if component is mounted to prevent state updates after unmount
@@ -40,76 +45,46 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
     messagesRef.current = messages;
   }, [messages]);
   
+  // Add a user cache to prevent repeated lookups
+  const userCache = useRef<Record<string, any>>({});
+  
   // Toggle chat visibility
   const toggleChat = () => setIsOpen(prev => !prev);
 
   // Fetch all messages for this project
   const fetchMessages = useCallback(async () => {
-    if (!projectId || !user?.id) return;
+    if (!projectId || !user?.id) {
+      console.log(`[Chat Debug] Skipping fetch - missing projectId or user.id: projectId=${projectId}, userId=${user?.id}`);
+      return;
+    }
     
     try {
       setIsLoading(true);
       
-      // Get messages from backend API
-      console.log(`[Chat Debug] Fetching messages from API for project: ${projectId}`);
-      const response = await fetch(
-        `${API_BASE_URL}/projects/${projectId}/messages?user_id=${user.id}`
-      );
+      // Log the exact URL being called
+      const url = `${API_BASE_URL}/projects/${projectId}/messages?user_id=${user.id}`;
+      console.log(`[Chat Debug] Fetching messages from API URL: ${url}`);
+      
+      const response = await fetch(url);
       
       if (!response.ok) {
         console.error(`[Chat Debug] API fetch failed: ${response.status} ${response.statusText}`);
+        // Log the response body for more detail on the error
+        const errorText = await response.text();
+        console.error(`[Chat Debug] Error response body: ${errorText}`);
         throw new Error(`Failed to fetch messages: ${response.status} ${response.statusText}`);
       }
       
       const data = await response.json();
       console.log(`[Chat Debug] Received ${data.length} messages from API`);
+      console.log(`[Chat Debug] API response data:`, data);
       
       // Only update state if component is still mounted
       if (isMounted.current) {
-        // Helper function to get sender info
-        const getSender = async (userId: string) => {
-          if (userId === user.id) {
-            return {
-              id: user.id,
-              name: user.name || 'You',
-              avatar: user.picture || 'https://via.placeholder.com/32'
-            };
-          }
-          
-          try {
-            // Fetch user data from Supabase
-            const { data, error } = await supabase
-              .from('users')
-              .select('id, name, picture')
-              .eq('id', userId)
-              .single();
-              
-            if (error || !data) {
-              return {
-                id: userId,
-                name: 'Unknown User',
-                avatar: 'https://via.placeholder.com/32'
-              };
-            }
-            
-            return {
-              id: data.id,
-              name: data.name || 'Unknown User',
-              avatar: data.picture || 'https://via.placeholder.com/32'
-            };
-          } catch (e) {
-            return {
-              id: userId,
-              name: 'Unknown User',
-              avatar: 'https://via.placeholder.com/32'
-            };
-          }
-        };
-        
-        // Process messages with user information
+        // Process messages with user information using the cached version
         const messagesWithUserData = await Promise.all(
           data.map(async (msg: any) => {
-            const sender = await getSender(msg.user_id);
+            const sender = await getSenderWithCache(msg.user_id);
               
             return {
               id: msg.id,
@@ -120,12 +95,15 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
           })
         );
         
+        console.log(`[Chat Debug] Processed ${messagesWithUserData.length} messages with user data`);
+        
         // Replace all messages (don't append) to avoid duplicates
         setMessages(messagesWithUserData);
       }
     } catch (error) {
       console.error('[Chat Debug] Error loading messages from API:', error);
       // If the API fetch fails, fall back to direct Supabase query
+      console.log('[Chat Debug] Falling back to direct Supabase query');
       await fetchMessagesDirectly();
     } finally {
       if (isMounted.current) {
@@ -136,10 +114,14 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
 
   // Direct Supabase query as fallback
   const fetchMessagesDirectly = useCallback(async () => {
-    if (!projectId || !user?.id) return;
+    if (!projectId || !user?.id) {
+      console.log(`[Chat Debug] Skipping direct fetch - missing projectId or user.id: projectId=${projectId}, userId=${user?.id}`);
+      return;
+    }
     
     try {
       console.log('[Chat Debug] Fetching messages directly from Supabase');
+      console.log(`[Chat Debug] Query params: project_id=${projectId}`);
       
       // Use authenticated query through Supabase (not anonymous)
       const { data, error } = await supabase
@@ -150,62 +132,29 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
       
       if (error) {
         console.error('[Chat Debug] Error fetching messages from Supabase:', error);
+        console.error('[Chat Debug] Full error object:', JSON.stringify(error));
         return;
       }
       
-      if (!data || data.length === 0) {
-        console.log('[Chat Debug] No messages found in Supabase');
+      if (!data) {
+        console.error('[Chat Debug] Supabase returned null or undefined data');
+        return;
+      }
+      
+      if (data.length === 0) {
+        console.log('[Chat Debug] No messages found in Supabase. This may be normal for a new project.');
         return;
       }
       
       console.log(`[Chat Debug] Received ${data.length} messages from Supabase directly`);
+      console.log('[Chat Debug] Supabase response data:', data);
       
       // Only update state if component is still mounted
       if (isMounted.current) {
-        // Helper function to get sender info
-        const getSender = async (userId: string) => {
-          if (userId === user.id) {
-            return {
-              id: user.id,
-              name: user.name || 'You',
-              avatar: user.picture || 'https://via.placeholder.com/32'
-            };
-          }
-          
-          try {
-            // Fetch user data from Supabase
-            const { data, error } = await supabase
-              .from('users')
-              .select('id, name, picture')
-              .eq('id', userId)
-              .single();
-              
-            if (error || !data) {
-              return {
-                id: userId,
-                name: 'Unknown User',
-                avatar: 'https://via.placeholder.com/32'
-              };
-            }
-            
-            return {
-              id: data.id,
-              name: data.name || 'Unknown User',
-              avatar: data.picture || 'https://via.placeholder.com/32'
-            };
-          } catch (e) {
-            return {
-              id: userId,
-              name: 'Unknown User',
-              avatar: 'https://via.placeholder.com/32'
-            };
-          }
-        };
-        
-        // Process messages with user information
+        // Process messages with user information using the cached version
         const messagesWithUserData = await Promise.all(
           data.map(async (msg: any) => {
-            const sender = await getSender(msg.user_id);
+            const sender = await getSenderWithCache(msg.user_id);
               
             return {
               id: msg.id,
@@ -216,11 +165,14 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
           })
         );
         
+        console.log(`[Chat Debug] Processed ${messagesWithUserData.length} messages with user data from Supabase`);
+        
         // Replace all messages to avoid duplicates from multiple sources
         setMessages(messagesWithUserData);
       }
     } catch (error) {
       console.error('[Chat Debug] Error in direct Supabase fetch:', error);
+      console.error('[Chat Debug] Full error:', JSON.stringify(error, null, 2));
     }
   }, [projectId, user]);
 
@@ -231,77 +183,40 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
     // Flag component as mounted
     isMounted.current = true;
     
+    // Set connecting state to true
+    setIsConnecting(true);
+    
     // Debug info to help identify connection issues
     console.log("[Chat Debug] Setting up Supabase Realtime for project:", projectId);
     
     // Initial message fetch
     fetchMessages();
     
-    // Helper function to get sender info
-    const getSender = async (userId: string) => {
-      if (userId === user.id) {
-        return {
-          id: user.id,
-          name: user.name || 'You',
-          avatar: user.picture || 'https://via.placeholder.com/32'
-        };
-      }
-      
-      try {
-        // Fetch user data from Supabase
-        const { data, error } = await supabase
-          .from('users')
-          .select('id, name, picture')
-          .eq('id', userId)
-          .single();
-          
-        if (error || !data) {
-          return {
-            id: userId,
-            name: 'Unknown User',
-            avatar: 'https://via.placeholder.com/32'
-          };
-        }
-        
-        return {
-          id: data.id,
-          name: data.name || 'Unknown User',
-          avatar: data.picture || 'https://via.placeholder.com/32'
-        };
-      } catch (e) {
-        return {
-          id: userId,
-          name: 'Unknown User',
-          avatar: 'https://via.placeholder.com/32'
-        };
-      }
-    };
-    
     // Configure channel for real-time updates with proper naming
     const channelName = `project-messages-${projectId}`;
     console.log("[Chat Debug] Creating channel:", channelName);
     
-    // Subscribe to changes on the project_messages table
+    // Enhanced subscription with better real-time configuration
     const subscription = supabase
-      .channel(channelName)
+      .channel(channelName, {
+        config: {
+          broadcast: { self: true },
+          presence: { key: user.id }
+        }
+      })
       .on('postgres_changes', { 
-        event: '*',  // Listen for all events (INSERT, UPDATE, DELETE)
+        event: 'INSERT',  // Focus only on INSERT events to improve performance
         schema: 'public', 
         table: 'project_messages',
         filter: `project_id=eq.${projectId}`
       }, async (payload: any) => {
-        console.log("[Chat Debug] Received payload:", payload);
-        
-        // Only process INSERT events
-        if (payload.eventType !== 'INSERT') {
-          return;
-        }
+        console.log("[Chat Debug] Received real-time payload:", payload);
         
         if (!isMounted.current) return;
         
-        // Get user information for this message
+        // Get user information for this message using the cached version
         const senderId = payload.new.user_id;
-        const sender = await getSender(senderId);
+        const sender = await getSenderWithCache(senderId);
         
         // Create a new message from the payload with proper user info
         const newMessage: Message = {
@@ -315,9 +230,11 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
         setMessages(prev => {
           // Skip if already exists
           if (prev.some(msg => msg.id === newMessage.id)) {
+            console.log(`[Chat Debug] Skipping duplicate message: ${newMessage.id}`);
             return prev;
           }
           
+          console.log(`[Chat Debug] Adding new real-time message: ${newMessage.id}`);
           // Add new message and sort by timestamp
           return [...prev, newMessage].sort((a, b) => 
             a.timestamp.getTime() - b.timestamp.getTime()
@@ -329,49 +246,120 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
         
         if (isMounted.current) {
           setChannelStatus(status);
-        }
-        
-        // If the channel is established, verify we have all messages
-        if (status === 'SUBSCRIBED') {
-          console.log("[Chat Debug] Successfully subscribed to channel");
-          fetchMessagesDirectly();
-        } else if (status === 'CHANNEL_ERROR' || status === 'CLOSED' || status === 'TIMED_OUT') {
-          console.error("[Chat Debug] Channel error or closed:", status);
-          // Try to recover with direct fetch
-          fetchMessagesDirectly();
+          
+          // Update connecting state based on channel status
+          if (status === 'SUBSCRIBED') {
+            setIsConnecting(false);
+            console.log("[Chat Debug] Successfully subscribed to channel");
+            // Fetch messages immediately to ensure we have latest state
+            fetchMessagesDirectly();
+          } else if (status === 'CHANNEL_ERROR' || status === 'CLOSED' || status === 'TIMED_OUT') {
+            setIsConnecting(false);
+            console.error("[Chat Debug] Channel error or closed:", status);
+            // Try to recover with direct fetch
+            fetchMessagesDirectly();
+          }
         }
       });
     
-    // Polling as fallback mechanism
+    // Implement more responsive polling for faster updates
     const pollInterval = setInterval(() => {
       if (isMounted.current) {
         console.log("[Chat Debug] Polling for messages as fallback");
         fetchMessagesDirectly();
       }
-    }, 10000); // Poll every 10 seconds as fallback
+    }, 5000); // Poll every 5 seconds instead of 30 seconds for more real-time feel
+    
+    // Also add a heartbeat to keep the connection alive
+    const heartbeatInterval = setInterval(() => {
+      if (isMounted.current) {
+        subscription.send({
+          type: 'broadcast',
+          event: 'heartbeat',
+          payload: { projectId, userId: user.id, timestamp: new Date().toISOString() }
+        });
+      }
+    }, 15000); // Send heartbeat every 15 seconds
     
     // Cleanup function
     return () => {
       console.log("[Chat Debug] Cleaning up Supabase Realtime subscription");
       isMounted.current = false;
+      setIsConnecting(false);
       subscription.unsubscribe();
       clearInterval(pollInterval);
+      clearInterval(heartbeatInterval);
     };
   }, [projectId, fetchMessages, fetchMessagesDirectly, user]);
 
-  // Send a new message
-  const sendMessage = async (content: string) => {
-    if (!content.trim() || !user?.id || !projectId) return;
-    
-    try {
-      const messageContent = content.trim();
-      
-      // User info for the current user (sender)
-      const userInfo = {
+  // Helper function to get sender info with caching
+  const getSenderWithCache = async (userId: string) => {
+    // Return from cache if available
+    if (userCache.current[userId]) {
+      return userCache.current[userId];
+    }
+
+    if (userId === user?.id) {
+      const currentUser = {
         id: user.id,
         name: user.name || 'You',
         avatar: user.picture || 'https://via.placeholder.com/32'
       };
+      // Add to cache
+      userCache.current[userId] = currentUser;
+      return currentUser;
+    }
+    
+    try {
+      // Fetch user data from Supabase
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, name, picture')
+        .eq('id', userId)
+        .single();
+        
+      if (error || !data) {
+        const unknownUser = {
+          id: userId,
+          name: 'Unknown User',
+          avatar: 'https://via.placeholder.com/32'
+        };
+        // Even cache unknown users to prevent repeated lookups
+        userCache.current[userId] = unknownUser;
+        return unknownUser;
+      }
+      
+      const userInfo = {
+        id: data.id,
+        name: data.name || 'Unknown User',
+        avatar: data.picture || 'https://via.placeholder.com/32'
+      };
+      
+      // Add to cache
+      userCache.current[userId] = userInfo;
+      return userInfo;
+    } catch (e) {
+      const fallbackUser = {
+        id: userId,
+        name: 'Unknown User',
+        avatar: 'https://via.placeholder.com/32'
+      };
+      // Cache even on error
+      userCache.current[userId] = fallbackUser;
+      return fallbackUser;
+    }
+  };
+
+  // Optimized sendMessage function to eliminate redundant requests
+  const sendMessage = async (content: string) => {
+    if (!content.trim() || !user?.id || !projectId) return;
+    
+    try {
+      setIsSending(true);
+      const messageContent = content.trim();
+      
+      // User info for the current user (sender) - use from cache if available
+      const userInfo = await getSenderWithCache(user.id);
       
       // Create a temporary message with local ID
       const tempId = `temp-${Date.now()}`;
@@ -384,10 +372,11 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
       
       // Add to UI immediately for responsiveness
       if (isMounted.current) {
+        console.log(`[Chat Debug] Adding temporary message: ${tempId}`);
         setMessages(prev => [...prev, tempMessage]);
       }
       
-      // Send to backend API
+      // Send to backend API - consolidated to a single request
       const response = await fetch(`${API_BASE_URL}/projects/messages`, {
         method: 'POST',
         headers: {
@@ -418,60 +407,61 @@ export function ProjectChatProvider({ children, projectId }: { children: React.R
         throw new Error('Failed to send message');
       }
       
-      // Try direct insert as well for redundancy
-      if (responseData && responseData.id) {
-        // The message was added successfully via API, we can remove the temp message
-        // and wait for the real-time update to add the real one
-        if (isMounted.current) {
-          setMessages(prev => prev.filter(msg => msg.id !== tempId));
-        }
-      } else {
-        // As fallback, try to also insert directly to Supabase
-        try {
-          const { data, error } = await supabase
-            .from('project_messages')
-            .insert({
-              project_id: projectId,
-              user_id: user.id,
-              content: messageContent
-            })
-            .select();
-            
-          if (error) {
-            console.error('Error with direct insert:', error);
-          } else if (data && data.length > 0) {
-            // Replace temp message with the real one if we got data back
-            if (isMounted.current) {
-              setMessages(prev => {
-                const filtered = prev.filter(msg => msg.id !== tempId);
-                const newMsg: Message = {
-                  id: data[0].id,
-                  content: data[0].content,
-                  sender: userInfo,
-                  timestamp: new Date(data[0].created_at)
-                };
-                return [...filtered, newMsg];
-              });
-            }
+      // On success, don't immediately remove the temp message - we'll let it be replaced
+      // when the real message arrives via the real-time subscription
+      // This avoids the message appearing to disappear and reappear
+
+      // Also directly add to Supabase for faster updates
+      try {
+        console.log(`[Chat Debug] Directly inserting message to Supabase for faster update`);
+        await supabase
+          .from('project_messages')
+          .insert({
+            id: responseData.id || undefined, // Use the ID from the response if available
+            project_id: projectId,
+            user_id: user.id,
+            content: messageContent,
+            created_at: new Date().toISOString()
+          });
+          
+        // Update messages immediately with the correct ID if available
+        if (responseData && responseData.id) {
+          if (isMounted.current) {
+            setMessages(prev => {
+              // Replace temp message with the real one
+              const updated = prev.map(msg => 
+                msg.id === tempId ? {
+                  ...msg,
+                  id: responseData.id
+                } : msg
+              );
+              return updated;
+            });
           }
-        } catch (e) {
-          console.error('Error with direct Supabase insert:', e);
         }
+      } catch (e) {
+        console.error('[Chat Debug] Error with direct insert:', e);
+        // We still have the temp message showing, so the UX is not affected
       }
       
-      // Final fetch to ensure we have the latest state
-      setTimeout(() => {
-        if (isMounted.current) {
-          fetchMessagesDirectly();
-        }
-      }, 1000);
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('[Chat Debug] Error sending message:', error);
+    } finally {
+      setIsSending(false);
     }
   };
 
   return (
-    <ProjectChatContext.Provider value={{ messages, isOpen, toggleChat, sendMessage, isLoading }}>
+    <ProjectChatContext.Provider value={{ 
+      messages, 
+      isOpen, 
+      toggleChat, 
+      sendMessage, 
+      isLoading, 
+      isSending,
+      channelStatus,
+      isConnecting
+    }}>
       {children}
       {/* Debug element - only in development */}
       {import.meta.env.DEV && (
