@@ -130,7 +130,7 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
         },
         body: JSON.stringify({
           name,
-          user_id: user.id
+          admin_id: user.id
         })
       });
       
