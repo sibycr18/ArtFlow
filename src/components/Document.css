@@ -1,0 +1,28 @@
+/* Document Editor Styles */
+
+.document-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.document-editor {
+  flex: 1;
+  padding: 1rem;
+  min-height: 300px;
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.document-editor:focus {
+  outline: none;
+}
+
+/* Style for placeholder text when editor is empty */
+.document-editor:empty:before {
+  content: 'Start typing here...';
+  color: #ccc;
+  font-style: italic;
+} 
