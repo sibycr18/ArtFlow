@@ -2,6 +2,7 @@ import React from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
+import Footer from './components/Footer';
 import Dashboard from './pages/Dashboard';
 import ProjectView from './pages/ProjectView';
 import ExplorePage from './pages/ExplorePage';
@@ -50,29 +51,38 @@ function AppRoutes() {
         element={
           <RequireNoAuth>
             <Login />
+            <Footer />
           </RequireNoAuth>
         }
       />
-      <Route path="/test-canvas" element={<TestCanvas />} />
+      <Route path="/test-canvas" element={
+        <>
+          <TestCanvas />
+          <Footer />
+        </>
+      } />
       <Route
         path="/*"
         element={
           <RequireAuth>
             <ProjectProvider>
               <SidebarProvider>
-                <div className="flex h-screen bg-gray-50">
-                  <Sidebar />
-                  <div className="flex-1 flex flex-col overflow-hidden">
-                    <Header />
-                    <main className="flex-1 overflow-y-auto">
-                      <Routes>
-                        <Route path="/" element={<Dashboard />} />
-                        <Route path="/project/:id" element={<ProjectView />} />
-                        <Route path="/project/:projectId/:fileId" element={<EditorView />} />
-                        <Route path="/explore" element={<ExplorePage />} />
-                        <Route path="*" element={<Navigate to="/" replace />} />
-                      </Routes>
-                    </main>
+                <div className="flex h-screen bg-gray-50 flex-col">
+                  <div className="flex flex-1 overflow-hidden">
+                    <Sidebar />
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                      <Header />
+                      <main className="flex-1 overflow-y-auto">
+                        <Routes>
+                          <Route path="/" element={<Dashboard />} />
+                          <Route path="/project/:id" element={<ProjectView />} />
+                          <Route path="/project/:projectId/:fileId" element={<EditorView />} />
+                          <Route path="/explore" element={<ExplorePage />} />
+                          <Route path="*" element={<Navigate to="/" replace />} />
+                        </Routes>
+                      </main>
+                      <Footer />
+                    </div>
                   </div>
                 </div>
               </SidebarProvider>

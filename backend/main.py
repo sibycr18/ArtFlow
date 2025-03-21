@@ -173,21 +173,20 @@ async def push_to_redis_queue(event):
 if not os.path.exists('logs'):
     os.makedirs('logs')
 
-# Configure logging with timestamp in filename
-current_time = datetime.now().strftime('%Y%m%d_%H%M%S')
-log_file = f'logs/artflow_{current_time}.log'
+# Use a consistent log file name instead of one with timestamp
+log_file = 'logs/artflow.log'
 
 # Configure logging
 logging.basicConfig(
     level=logging.WARNING,  # Set default level to WARNING
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(log_file, mode='a'),
+        logging.FileHandler(log_file, mode='a'),  # Use append mode
         logging.StreamHandler(sys.stdout)
     ]
 )
 
-# Only set our application logger to INFO level
+# Log startup with a clear separator for new sessions
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -199,7 +198,9 @@ logging.getLogger("uvicorn").setLevel(logging.WARNING)
 logging.getLogger("asyncio").setLevel(logging.WARNING)
 logging.getLogger("fastapi").setLevel(logging.WARNING)
 
-logger.info(f"Starting new session. Logging to {log_file}")
+logger.info("="*50)
+logger.info(f"Starting new session at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+logger.info("="*50)
 
 app = FastAPI()
 
