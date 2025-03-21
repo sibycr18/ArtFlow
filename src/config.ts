@@ -5,7 +5,7 @@ import logger from './utils/logger';
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://artflow-backend-64f27556b9a4.herokuapp.com';
 
 // WebSocket URL for real-time communication
-export const WS_URL = 'wss://artflow-backend-64f27556b9a4.herokuapp.com';
+export const WS_URL = import.meta.env.VITE_WS_URL || 'wss://artflow-backend-64f27556b9a4.herokuapp.com';
 
 // Supabase Configuration
 export const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://ziemoawiawjzscrxheea.supabase.co';

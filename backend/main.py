@@ -211,49 +211,7 @@ class ConnectionManager:
         self.active_connections: Dict[str, Dict[str, Dict[str, WebSocket]]] = {}
         self.drawing_history: Dict[str, Dict[str, List[dict]]] = {}
         self.logger = logging.getLogger("ConnectionManager")
-        # Add a buffer for batch processing
-        self._message_buffer: Dict[str, List[tuple]] = {}
-        self._last_broadcast_time: Dict[str, float] = {}
-        self.BATCH_INTERVAL = 0.016  # ~60fps, matching frontend throttle
-
-    async def _process_message_buffer(self, project_id: str, file_id: str):
-        """Process buffered messages in batches"""
-        current_time = time.time()
-        buffer_key = f"{project_id}:{file_id}"
-        
-        if buffer_key not in self._message_buffer:
-            return
-            
-        if (buffer_key not in self._last_broadcast_time or 
-            current_time - self._last_broadcast_time[buffer_key] >= self.BATCH_INTERVAL):
-            
-            messages = self._message_buffer[buffer_key]
-            if not messages:
-                return
-                
-            # Group messages by user
-            user_messages: Dict[str, List[tuple]] = {}
-            for user_id, message in messages:
-                if user_id not in user_messages:
-                    user_messages[user_id] = []
-                user_messages[user_id].append(message)
-            
-            # Broadcast messages for each user
-            for user_id, user_msgs in user_messages.items():
-                if len(user_msgs) > 1:
-                    # Batch multiple messages
-                    batch_message = {
-                        "type": "draw_batch",
-                        "data": [msg["data"] for msg in user_msgs if msg["type"] == "draw"]
-                    }
-                    await self._broadcast_to_others_immediate(project_id, file_id, user_id, batch_message)
-                else:
-                    # Single message, send as is
-                    await self._broadcast_to_others_immediate(project_id, file_id, user_id, user_msgs[0])
-            
-            # Clear the buffer
-            self._message_buffer[buffer_key] = []
-            self._last_broadcast_time[buffer_key] = current_time
+        # Removed batch processing code
 
     async def _broadcast_to_others_immediate(self, project_id: str, file_id: str, user_id: str, message: dict):
         """Immediate broadcast without buffering"""
@@ -264,24 +222,15 @@ class ConnectionManager:
                         await websocket.send_json(message)
                     except Exception as e:
                         self.logger.error(f"Error sending message to user {other_user_id}: {str(e)}")
-
+                        
     async def broadcast_to_others(self, project_id: str, file_id: str, user_id: str, message: dict):
-        """Buffer messages for batch processing"""
-        buffer_key = f"{project_id}:{file_id}"
-        
-        if message["type"] == "draw":
-            # Buffer draw messages
-            if buffer_key not in self._message_buffer:
-                self._message_buffer[buffer_key] = []
-            self._message_buffer[buffer_key].append((user_id, message))
-            
-            # Process buffer immediately
-            await self._process_message_buffer(project_id, file_id)
-        else:
-            # Non-draw messages are sent immediately
-            if message["type"] == "clear":
-                await self.clear_history(project_id, file_id)
-            await self._broadcast_to_others_immediate(project_id, file_id, user_id, message)
+        """Send messages immediately without batching"""
+        # All messages are sent immediately without any buffering or batching
+        if message["type"] == "clear":
+            # Keep clear history functionality
+            await self.clear_history(project_id, file_id)
+        # Use direct broadcasting for maximum performance
+        await self._broadcast_to_others_immediate(project_id, file_id, user_id, message)
 
     async def connect(self, websocket: WebSocket, project_id: str, file_id: str, user_id: str):
         await websocket.accept()
@@ -295,16 +244,16 @@ class ConnectionManager:
         # Store the connection
         self.active_connections[project_id][file_id][user_id] = websocket
         
-        # Get history from database and send to new user
-        history_entries = await get_file_history(project_id, file_id)
-        if history_entries:
-            await websocket.send_json({
-                "type": "history_sync",
-                "data": {
-                    "fileId": file_id,
-                    "entries": history_entries
-                }
-            })
+        # Disable history loading from database
+        # history_entries = await get_file_history(project_id, file_id)
+        # if history_entries:
+        #     await websocket.send_json({
+        #         "type": "history_sync",
+        #         "data": {
+        #             "fileId": file_id,
+        #             "entries": history_entries
+        #         }
+        #     })
         
         self.logger.info(f"Client connected. Project: {project_id}, File: {file_id}, User: {user_id}")
         
@@ -368,27 +317,27 @@ class ConnectionManager:
         
         self.drawing_history[project_id][file_id].append(history_entry)
         
-        # Add to database
-        asyncio.create_task(add_drawing_history(
-            project_id,
-            file_id,
-            user_id,
-            drawing_data,
-            history_entry["timestamp"]
-        ))
+        # Disable database storage
+        # asyncio.create_task(add_drawing_history(
+        #     project_id,
+        #     file_id,
+        #     user_id,
+        #     drawing_data,
+        #     history_entry["timestamp"]
+        # ))
         
-        # Log verification
-        current_count = len(self.drawing_history[project_id][file_id])
-        self.logger.info(f"=== History Update Verification ===")
-        self.logger.info(f"Current entry count for {project_id}/{file_id}: {current_count}")
-        self.logger.info(f"Latest entry: {json.dumps(history_entry, indent=2)}")
+        # Disable verification logging to reduce overhead
+        # current_count = len(self.drawing_history[project_id][file_id])
+        # self.logger.info(f"=== History Update Verification ===")
+        # self.logger.info(f"Current entry count for {project_id}/{file_id}: {current_count}")
+        # self.logger.info(f"Latest entry: {json.dumps(history_entry, indent=2)}")
 
     async def clear_history(self, project_id: str, file_id: str):
         """Clear the drawing history for a specific file"""
         if project_id in self.drawing_history and file_id in self.drawing_history[project_id]:
             self.drawing_history[project_id][file_id] = []
-            # Clear database history
-            await clear_file_history(project_id, file_id)
+            # Disable database clear operation
+            # await clear_file_history(project_id, file_id)
             self.logger.info(f"Cleared history for Project: {project_id}, File: {file_id}")
 
 manager = ConnectionManager()
@@ -404,10 +353,10 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str, file_id: str
             try:
                 # Wait for messages
                 data = await websocket.receive_json()
-                logger.debug(f"Received message from User {user_id}: {data}")
+                # Reduced logging - just log message type
+                logger.debug(f"Received {data.get('type')} message from User {user_id}")
                 
                 message_type = data.get("type")
-                logger.debug(f"Message type: {message_type}")
                 
                 if message_type == "init":
                     # Send confirmation
@@ -421,31 +370,20 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str, file_id: str
                         }
                     })
                 elif message_type == "draw":
-                    # Log the drawing data structure
-                    logger.info("\n=== Received Drawing Data ===")
-                    logger.info(f"From User: {user_id}")
-                    logger.info(f"Project: {project_id}, File: {file_id}")
-                    logger.info(f"Full message structure: {json.dumps(data, indent=2)}")
+                    # Minimal logging for drawing data
+                    logger.debug(f"Broadcasting draw from User: {user_id}")
                     
                     # Verify the data structure
                     drawing_data = data.get('data')
-                    logger.info(f"\nDrawing data extracted: {json.dumps(drawing_data, indent=2)}")
-                    
                     if not drawing_data:
                         logger.error("No drawing data found in message")
                         continue
                     
                     # Broadcast drawing data to others first
-                    logger.info("\nBroadcasting draw message...")
                     await manager.broadcast_to_others(project_id, file_id, user_id, data)
                     
-                    # Then store in history
-                    manager.add_to_history(project_id, file_id, user_id, drawing_data)
-                    
-                    # Verify history after storage
-                    project_history = manager.drawing_history.get(project_id, {})
-                    file_history = project_history.get(file_id, [])
-                    logger.info(f"History entries after storage: {len(file_history)}")
+                    # Skip history for better performance
+                    # manager.add_to_history(project_id, file_id, user_id, drawing_data)
                     
                 elif message_type == "clear":
                     logger.debug(f"Broadcasting clear message from User {user_id}")

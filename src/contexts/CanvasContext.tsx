@@ -23,6 +23,9 @@ const logger = {
 const RECONNECT_INTERVAL = 3000; // 3 seconds
 const MAX_RECONNECT_ATTEMPTS = 5;
 const THROTTLE_INTERVAL = 16; // ~60fps
+const THROTTLE_LEADING = true; // Send the first event immediately
+const THROTTLE_TRAILING = true; // Send the last event
+const FLUSH_INTERVAL = 500; // Flush throttled events every 500ms
 
 interface CanvasContextType {
   isConnected: boolean;
@@ -127,11 +130,14 @@ export const CanvasProvider: React.FC<CanvasProviderProps> = ({
       ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
-          logger.debug('Received raw message:', message);
+          const wsUrl = `${WS_URL}/ws/${projectId}/${fileId}/${userId}`;
+          logger.info(`Received message from WebSocket URL: ${wsUrl}`);
+          logger.debug('Received raw message type:', message.type);
+          logger.debug('Full message data:', message);
 
+          // Simplified message handling - only handle draw and clear commands
           switch (message.type) {
             case 'connected':
-              // Connection confirmed by server
               logger.info('Connection confirmed by server');
               break;
             case 'draw':
@@ -141,15 +147,8 @@ export const CanvasProvider: React.FC<CanvasProviderProps> = ({
               }
               break;
             case 'draw_batch':
-              logger.debug('Received batch draw data:', message);
-              if (onRemoteDrawRef.current && Array.isArray(message.data)) {
-                // Process batch of drawing data
-                requestAnimationFrame(() => {
-                  message.data.forEach(drawData => {
-                    onRemoteDrawRef.current?.(drawData);
-                  });
-                });
-              }
+              // Ignore batched messages
+              logger.warn('Ignoring batched drawing data as batching is disabled');
               break;
             case 'clear':
               logger.info('Received clear command');
@@ -157,12 +156,9 @@ export const CanvasProvider: React.FC<CanvasProviderProps> = ({
                 onRemoteClearRef.current();
               }
               break;
-            case 'error':
-              logger.error('Server error:', message.data);
-              setConnectionError(message.data?.message || 'Unknown error');
-              break;
             default:
-              logger.warn('Received unknown message type:', message.type);
+              // Skip any other message types (history_sync, etc.)
+              logger.warn('Skipping message type:', message.type);
           }
         } catch (error) {
           logger.error('Error processing message:', error);
@@ -170,7 +166,9 @@ export const CanvasProvider: React.FC<CanvasProviderProps> = ({
       };
 
       ws.onclose = (event) => {
-        logger.info(`WebSocket disconnected with code ${event.code}`);
+        const wsUrl = `${WS_URL}/ws/${projectId}/${fileId}/${userId}`;
+        logger.info(`WebSocket disconnected with code ${event.code} from URL: ${wsUrl}`);
+        logger.info(`WebSocket close reason: ${event.reason || 'No reason provided'}`);
         setIsConnected(false);
         
         // Don't attempt to reconnect if we're cleaning up
@@ -184,7 +182,8 @@ export const CanvasProvider: React.FC<CanvasProviderProps> = ({
       };
 
       ws.onerror = (error) => {
-        logger.error('WebSocket error:', error);
+        const wsUrl = `${WS_URL}/ws/${projectId}/${fileId}/${userId}`;
+        logger.error(`WebSocket error on URL: ${wsUrl}`, error);
         setConnectionError('Connection error occurred');
       };
 
@@ -206,50 +205,45 @@ export const CanvasProvider: React.FC<CanvasProviderProps> = ({
   const throttledSendMessage = useCallback(
     throttle((message: WebSocketMessage) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
+        const wsUrl = `${WS_URL}/ws/${projectId}/${fileId}/${userId}`;
+        logger.info(`Sending message to WebSocket URL: ${wsUrl}`);
         wsRef.current.send(JSON.stringify(message));
       } else {
         logger.warn('WebSocket is not connected. Message not sent:', message);
       }
-    }, THROTTLE_INTERVAL),
-    []
+    }, THROTTLE_INTERVAL, { leading: THROTTLE_LEADING, trailing: THROTTLE_TRAILING }),
+    [projectId, fileId, userId]
   );
 
   const sendDrawData = useCallback((data: DrawingData) => {
-    // For start points, send immediately without throttling
-    if ('isStartPoint' in data && data.isStartPoint) {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({
-          type: 'draw',
-          data: {
-            ...data,
-            timestamp: Date.now()
-          }
-        }));
-      }
-    } else {
-      // For continuous drawing, use throttled sending
-      throttledSendMessage({
+    // Simplified - all drawing data sent immediately without throttling
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      const wsUrl = `${WS_URL}/ws/${projectId}/${fileId}/${userId}`;
+      logger.info(`Sending drawing data to WebSocket URL: ${wsUrl}`);
+      wsRef.current.send(JSON.stringify({
         type: 'draw',
         data: {
           ...data,
           timestamp: Date.now()
         }
-      });
+      }));
+    } else {
+      logger.warn('WebSocket is not connected. Drawing data not sent.');
     }
-  }, [throttledSendMessage]);
-
-  // Make sure to flush any pending messages when unmounting
-  useEffect(() => {
-    return () => {
-      throttledSendMessage.flush();
-    };
-  }, [throttledSendMessage]);
+  }, [projectId, fileId, userId]);
 
   const sendClearCanvas = useCallback(() => {
-    throttledSendMessage({
-      type: 'clear'
-    });
-  }, [throttledSendMessage]);
+    // Use direct send instead of throttle for clear canvas
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      const wsUrl = `${WS_URL}/ws/${projectId}/${fileId}/${userId}`;
+      logger.info(`Sending clear command to WebSocket URL: ${wsUrl}`);
+      wsRef.current.send(JSON.stringify({
+        type: 'clear'
+      }));
+    } else {
+      logger.warn('WebSocket is not connected. Clear command not sent.');
+    }
+  }, [projectId, fileId, userId]);
 
   return (
     <CanvasContext.Provider value={{
