@@ -1,21 +1,44 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useProjects } from '../contexts/ProjectContext';
 import { useAuth } from '../context/AuthContext';
 import { CanvasProvider } from '../contexts/CanvasContext';
 import Canvas from '../components/Canvas';
-import Document from '../components/Document';
+import CollaborativeDocument from '../components/CollaborativeDocument';
 import ImageEditor from '../components/ImageEditor';
+import { Loader2 } from 'lucide-react';
 
 export default function EditorView() {
   const { projectId, fileId } = useParams();
   const navigate = useNavigate();
   const { projects } = useProjects();
   const { user } = useAuth();
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Use effect to simulate loading time and allow projects to load
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 800); // Show loading state for at least 800ms
+    
+    return () => clearTimeout(timer);
+  }, []);
 
   // Find the project and file
   const project = projects.find(p => p.id === projectId);
   const file = project?.files.find(f => f.id === fileId);
+
+  // Show loading screen while content is loading
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-blue-50">
+        <div className="text-center">
+          <Loader2 className="w-10 h-10 text-purple-600 animate-spin mx-auto mb-4" />
+          <h2 className="text-xl font-medium text-purple-900">Loading file...</h2>
+        </div>
+      </div>
+    );
+  }
 
   if (!project || !file) {
     return (
@@ -52,7 +75,15 @@ export default function EditorView() {
           </CanvasProvider>
         );
       case 'document':
-        return <Document fileName={file.name} onClose={handleClose} />;
+        return (
+          <CollaborativeDocument 
+            fileName={file.name} 
+            projectId={projectId!} 
+            fileId={fileId!} 
+            userId={user?.sub || 'anonymous'} 
+            onClose={handleClose} 
+          />
+        );
       case 'image':
         return <ImageEditor fileName={file.name} onClose={handleClose} />;
       default:
