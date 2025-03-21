@@ -1,6 +1,6 @@
 from fastapi import FastAPI, WebSocket, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union, Any
 import logging
 import json
 from datetime import datetime
@@ -28,11 +28,13 @@ load_dotenv()
 REDIS_ENABLED = os.getenv("REDIS_ENABLED", "false").lower() == "true"
 redis_client = None
 
-# Buffer for collecting drawing events before sending to Redis
-# Structure: {project_id: {file_id: [events]}}
+# Global variables
 redis_event_buffer = {}
 last_redis_flush_time = time.time()
 REDIS_FLUSH_INTERVAL = 5  # Flush buffer to Redis every 5 seconds
+
+# Document connections
+document_connections = {}  # Key: "project_id:file_id", Value: {user_id: websocket}
 
 if REDIS_ENABLED:
     try:
@@ -802,6 +804,224 @@ async def delete_project_endpoint(project_id: str, admin_id: str):
     except Exception as e:
         logger.error(f"Delete project error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# Define the text operation model
+class TextOperation(BaseModel):
+    type: str  # 'insert', 'delete', 'format', 'clear'
+    data: Dict[str, Any]
+
+# Document WebSocket connection manager
+class DocumentConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, Dict[str, Dict[str, WebSocket]]] = {}
+        self.document_history: Dict[str, Dict[str, List[dict]]] = {}
+        self.logger = logging.getLogger("DocumentConnectionManager")
+
+    async def broadcast_to_others(self, project_id: str, file_id: str, user_id: str, message: dict):
+        """Send message to all connected clients except the sender"""
+        if (project_id in self.active_connections and 
+            file_id in self.active_connections[project_id]):
+            
+            # Get a direct reference to avoid dict lookups in the loop
+            connections = self.active_connections[project_id][file_id]
+            
+            # Create a list of send tasks
+            send_tasks = []
+            
+            # Gather all send operations without awaiting them yet
+            for other_user_id, websocket in connections.items():
+                if other_user_id != user_id:
+                    # Add the send task to our list without awaiting
+                    send_tasks.append(websocket.send_json(message))
+            
+            # Now execute all sends concurrently
+            if send_tasks:
+                # Use gather for maximum performance, with return_exceptions=True to prevent
+                # one failed send from affecting others
+                await asyncio.gather(*send_tasks, return_exceptions=True)
+
+    async def connect(self, websocket: WebSocket, project_id: str, file_id: str, user_id: str):
+        await websocket.accept()
+        
+        # Initialize connections
+        if project_id not in self.active_connections:
+            self.active_connections[project_id] = {}
+        if file_id not in self.active_connections[project_id]:
+            self.active_connections[project_id][file_id] = {}
+            
+        # Store the connection
+        self.active_connections[project_id][file_id][user_id] = websocket
+        
+        # Future enhancement: Load document history from database
+        # Currently just confirming connection
+        
+        self.logger.info(f"Document client connected. Project: {project_id}, File: {file_id}, User: {user_id}")
+        
+        # Print all active users
+        self.logger.info("Current active document users:")
+        for p_id, files in self.active_connections.items():
+            for f_id, users in files.items():
+                self.logger.info(f"Project {p_id}, File {f_id}:")
+                for u_id in users.keys():
+                    self.logger.info(f"  - User: {u_id}")
+
+    def disconnect(self, project_id: str, file_id: str, user_id: str):
+        if project_id in self.active_connections:
+            if file_id in self.active_connections[project_id]:
+                self.active_connections[project_id][file_id].pop(user_id, None)
+                if not self.active_connections[project_id][file_id]:
+                    self.active_connections[project_id].pop(file_id)
+            if not self.active_connections[project_id]:
+                self.active_connections.pop(project_id)
+        self.logger.info(f"Document client disconnected. Project: {project_id}, File: {file_id}, User: {user_id}")
+        
+        # Print remaining active users
+        self.logger.info("Remaining active document users:")
+        for p_id, files in self.active_connections.items():
+            for f_id, users in files.items():
+                self.logger.info(f"Project {p_id}, File {f_id}:")
+                for u_id in users.keys():
+                    self.logger.info(f"  - User: {u_id}")
+
+    def add_to_history(self, project_id: str, file_id: str, user_id: str, operation_data: dict):
+        """Add a text operation to the history"""
+        self.logger.info(f"=== Adding to Document History ===")
+        self.logger.info(f"Project: {project_id}, File: {file_id}, User: {user_id}")
+        
+        # Add to in-memory history
+        if project_id not in self.document_history:
+            self.document_history[project_id] = {}
+        if file_id not in self.document_history[project_id]:
+            self.document_history[project_id][file_id] = []
+            
+        history_entry = {
+            "userId": user_id,
+            "timestamp": operation_data.get("timestamp", datetime.now().timestamp() * 1000),
+            "data": operation_data
+        }
+        
+        self.document_history[project_id][file_id].append(history_entry)
+        
+        # Future enhancement: Store in database
+
+    async def clear_history(self, project_id: str, file_id: str):
+        """Clear the document history for a specific file"""
+        if project_id in self.document_history and file_id in self.document_history[project_id]:
+            self.document_history[project_id][file_id] = []
+            self.logger.info(f"Cleared document history for Project: {project_id}, File: {file_id}")
+
+# Initialize the document connection manager
+document_manager = DocumentConnectionManager()
+
+@app.websocket("/ws/document/{project_id}/{file_id}/{user_id}")
+async def document_websocket_endpoint(websocket: WebSocket, project_id: str, file_id: str, user_id: str):
+    await document_manager.connect(websocket, project_id, file_id, user_id)
+    logger.info(f"Document WebSocket connected: project={project_id}, file={file_id}, user={user_id}")
+    
+    # Keep track of connections for this document
+    document_key = f"{project_id}:{file_id}"
+    if document_key not in document_connections:
+        document_connections[document_key] = {}
+    document_connections[document_key][user_id] = websocket
+    
+    try:
+        # Send connection confirmation
+        await websocket.send_json({
+            "type": "connected",
+            "data": {}
+        })
+        
+        # Process messages
+        while True:
+            # Wait for a message from this client
+            data = await websocket.receive_text()
+            logger.debug(f"DOCUMENT RECEIVED RAW DATA: {data}")
+            
+            # Parse the message
+            try:
+                message = json.loads(data)
+                logger.debug(f"DOCUMENT PARSED MESSAGE: {json.dumps(message, indent=2)}")
+                
+                # Process based on message type
+                message_type = message.get("type")
+                
+                if message_type == "init":
+                    logger.info(f"Document initialization: project={project_id}, file={file_id}, user={user_id}")
+                
+                elif message_type == "text_operation":
+                    operation = message.get("data", {})
+                    operation_type = operation.get("type")
+                    operation_data = operation.get("data", {})
+                    operation_user = operation_data.get("userId")
+                    
+                    # Add more detailed logging for format operations
+                    if operation_type == "format":
+                        format_type = operation_data.get("formatType", "unknown")
+                        format_value = operation_data.get("formatValue", "unknown")
+                        position = operation_data.get("position", -1)
+                        length = operation_data.get("length", -1)
+                        logger.info(f"Format operation: type={format_type}, value={format_value}, position={position}, length={length}, from user={operation_user}")
+                    else:
+                        logger.info(f"Text operation: type={operation_type}, from user={operation_user}")
+                    
+                    logger.debug(f"Operation data: {json.dumps(operation_data, indent=2)}")
+                    
+                    # Ensure userId is in the operation data
+                    if "userId" not in operation_data:
+                        operation_data["userId"] = user_id
+                    
+                    # Format for broadcasting
+                    broadcast_message = {
+                        "type": "text_operation",
+                        "data": operation
+                    }
+                    
+                    # Broadcast to other users
+                    for other_user_id, conn in document_connections[document_key].items():
+                        if other_user_id != user_id:  # Don't send back to originator
+                            logger.debug(f"Broadcasting to user: {other_user_id}")
+                            try:
+                                await conn.send_json(broadcast_message)
+                            except Exception as e:
+                                logger.error(f"Error broadcasting to {other_user_id}: {str(e)}")
+                
+                elif message_type == "cursor_update":
+                    cursor_data = message.get("data", {})
+                    
+                    # Ensure userId is correct in the cursor data
+                    cursor_data["userId"] = user_id
+                    
+                    # Format for broadcasting
+                    broadcast_message = {
+                        "type": "cursor_update",
+                        "data": cursor_data
+                    }
+                    
+                    # Broadcast cursor position to other users
+                    for other_user_id, conn in document_connections[document_key].items():
+                        if other_user_id != user_id:
+                            try:
+                                await conn.send_json(broadcast_message)
+                            except Exception as e:
+                                logger.error(f"Error broadcasting cursor to {other_user_id}: {str(e)}")
+                
+                else:
+                    logger.warning(f"Unknown message type: {message_type}")
+            
+            except json.JSONDecodeError:
+                logger.error(f"Invalid JSON received: {data}")
+            except Exception as e:
+                logger.error(f"Error processing message: {str(e)}")
+    
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected: project={project_id}, file={file_id}, user={user_id}")
+        # Clean up connections
+        if document_key in document_connections and user_id in document_connections[document_key]:
+            del document_connections[document_key][user_id]
+            if not document_connections[document_key]:  # If no more users for this document
+                del document_connections[document_key]
+        
+        document_manager.disconnect(project_id, file_id, user_id)
 
 if __name__ == "__main__":
     import uvicorn
