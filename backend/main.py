@@ -36,6 +36,9 @@ REDIS_FLUSH_INTERVAL = 5  # Flush buffer to Redis every 5 seconds
 # Document connections
 document_connections = {}  # Key: "project_id:file_id", Value: {user_id: websocket}
 
+# Image editor connections
+image_editor_connections = {}  # Key: "project_id:file_id", Value: {user_id: websocket}
+
 if REDIS_ENABLED:
     try:
         REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
@@ -374,25 +377,37 @@ class ConnectionManager:
         # Get a direct reference to avoid dict lookups in the loop
         connections = self.active_connections[project_id][file_id]
         
-        # Pre-serialize the message to JSON to do it only once
-        # Note: Only do this if all recipients need the exact same message
-        # If message customization per user is needed, remove this optimization
-        # message_json = json.dumps(message)
+        # Track disconnected clients to clean up after broadcasting
+        disconnected_clients = []
         
         # Create a list of send tasks
         send_tasks = []
+        send_targets = {}
         
         # Gather all send operations without awaiting them yet
         for other_user_id, websocket in connections.items():
             if other_user_id != user_id:
                 # Add the send task to our list without awaiting
-                send_tasks.append(websocket.send_json(message))
+                task = websocket.send_json(message)
+                send_tasks.append(task)
+                send_targets[task] = other_user_id
         
-        # Now execute all sends concurrently
+        # Now execute all sends concurrently with proper error handling
         if send_tasks:
-            # Use gather for maximum performance, with return_exceptions=True to prevent
-            # one failed send from affecting others
-            await asyncio.gather(*send_tasks, return_exceptions=True)
+            results = await asyncio.gather(*send_tasks, return_exceptions=True)
+            
+            # Process results to identify disconnected clients
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    task = send_tasks[i]
+                    failed_user_id = send_targets[task]
+                    self.logger.warning(f"Failed to send to user {failed_user_id}: {str(result)}")
+                    disconnected_clients.append((project_id, file_id, failed_user_id))
+        
+        # Clean up disconnected clients
+        for p_id, f_id, failed_user_id in disconnected_clients:
+            self.logger.info(f"Removing disconnected client: {failed_user_id}")
+            self.disconnect(p_id, f_id, failed_user_id)
 
     async def broadcast_to_others(self, project_id: str, file_id: str, user_id: str, message: dict):
         """Send messages immediately without batching"""
@@ -977,6 +992,7 @@ async def document_websocket_endpoint(websocket: WebSocket, project_id: str, fil
                     }
                     
                     # Broadcast to other users
+                    disconnected_users = []
                     for other_user_id, conn in document_connections[document_key].items():
                         if other_user_id != user_id:  # Don't send back to originator
                             logger.debug(f"Broadcasting to user: {other_user_id}")
@@ -984,6 +1000,13 @@ async def document_websocket_endpoint(websocket: WebSocket, project_id: str, fil
                                 await conn.send_json(broadcast_message)
                             except Exception as e:
                                 logger.error(f"Error broadcasting to {other_user_id}: {str(e)}")
+                                disconnected_users.append(other_user_id)
+                    
+                    # Clean up disconnected users
+                    for disconnected_user in disconnected_users:
+                        logger.info(f"Removing disconnected document user: {disconnected_user}")
+                        if disconnected_user in document_connections[document_key]:
+                            del document_connections[document_key][disconnected_user]
                 
                 elif message_type == "cursor_update":
                     cursor_data = message.get("data", {})
@@ -998,12 +1021,20 @@ async def document_websocket_endpoint(websocket: WebSocket, project_id: str, fil
                     }
                     
                     # Broadcast cursor position to other users
+                    disconnected_users = []
                     for other_user_id, conn in document_connections[document_key].items():
                         if other_user_id != user_id:
                             try:
                                 await conn.send_json(broadcast_message)
                             except Exception as e:
                                 logger.error(f"Error broadcasting cursor to {other_user_id}: {str(e)}")
+                                disconnected_users.append(other_user_id)
+                    
+                    # Clean up disconnected users
+                    for disconnected_user in disconnected_users:
+                        logger.info(f"Removing disconnected document user: {disconnected_user}")
+                        if disconnected_user in document_connections[document_key]:
+                            del document_connections[document_key][disconnected_user]
                 
                 else:
                     logger.warning(f"Unknown message type: {message_type}")
@@ -1022,6 +1053,103 @@ async def document_websocket_endpoint(websocket: WebSocket, project_id: str, fil
                 del document_connections[document_key]
         
         document_manager.disconnect(project_id, file_id, user_id)
+
+@app.websocket("/ws/image/{project_id}/{file_id}/{user_id}")
+async def image_websocket_endpoint(websocket: WebSocket, project_id: str, file_id: str, user_id: str):
+    await manager.connect(websocket, project_id, file_id, user_id)
+    logger.info(f"Image Editor WebSocket connected: project={project_id}, file={file_id}, user={user_id}")
+    
+    # Keep track of connections for this image editor
+    image_key = f"{project_id}:{file_id}"
+    if image_key not in image_editor_connections:
+        image_editor_connections[image_key] = {}
+    image_editor_connections[image_key][user_id] = websocket
+    
+    try:
+        # Send connection confirmation
+        await websocket.send_json({
+            "type": "connected",
+            "data": {}
+        })
+        
+        # Process messages
+        while True:
+            # Wait for a message from this client
+            data = await websocket.receive_text()
+            logger.debug(f"IMAGE EDITOR RECEIVED RAW DATA: {data[:100]}...")  # Log only first 100 chars for large uploads
+            
+            # Parse the message
+            try:
+                message = json.loads(data)
+                message_type = message.get("type")
+                
+                # Process based on message type
+                if message_type == "init":
+                    logger.info(f"Image editor initialization: project={project_id}, file={file_id}, user={user_id}")
+                
+                elif message_type == "image_operation":
+                    operation = message.get("data", {})
+                    operation_type = operation.get("type")
+                    operation_data = operation.get("data", {})
+                    operation_user = operation_data.get("userId")
+                    
+                    # Log operation type
+                    if operation_type == "filter":
+                        filter_type = operation_data.get("filterType", "unknown")
+                        filter_value = operation_data.get("filterValue", 0)
+                        
+                        if filter_value == 0:
+                            logger.info(f"Filter removal operation: {filter_type} set to 0%, from user={operation_user}")
+                        else:
+                            logger.info(f"Filter application: type={filter_type}, value={filter_value}%, from user={operation_user}")
+                    elif operation_type == "upload":
+                        img_data_length = len(operation_data.get("imageData", ""))
+                        logger.info(f"Image upload operation: data length={img_data_length}, from user={operation_user}")
+                    else:
+                        logger.info(f"Image operation: type={operation_type}, from user={operation_user}")
+                    
+                    # Format for broadcasting
+                    broadcast_message = {
+                        "type": "image_operation",
+                        "data": operation
+                    }
+                    
+                    # Broadcast to other users
+                    disconnected_users = []
+                    for other_user_id, conn in image_editor_connections[image_key].items():
+                        if other_user_id != user_id:  # Don't send back to originator
+                            logger.debug(f"Broadcasting to user: {other_user_id}")
+                            try:
+                                await conn.send_json(broadcast_message)
+                            except Exception as e:
+                                logger.error(f"Error broadcasting to {other_user_id}: {str(e)}")
+                                disconnected_users.append(other_user_id)
+                    
+                    # Clean up disconnected users
+                    for disconnected_user in disconnected_users:
+                        logger.info(f"Removing disconnected image editor user: {disconnected_user}")
+                        if disconnected_user in image_editor_connections[image_key]:
+                            del image_editor_connections[image_key][disconnected_user]
+                
+                else:
+                    logger.warning(f"Unknown message type: {message_type}")
+            
+            except json.JSONDecodeError:
+                logger.error(f"Invalid JSON received in image editor")
+            except Exception as e:
+                logger.error(f"Error processing image editor message: {str(e)}")
+    
+    except WebSocketDisconnect:
+        logger.info(f"Image Editor WebSocket disconnected: project={project_id}, file={file_id}, user={user_id}")
+    except Exception as e:
+        logger.error(f"Image Editor WebSocket error: {str(e)}")
+    finally:
+        # Clean up connection
+        manager.disconnect(project_id, file_id, user_id)
+        if image_key in image_editor_connections and user_id in image_editor_connections[image_key]:
+            del image_editor_connections[image_key][user_id]
+            if not image_editor_connections[image_key]:
+                del image_editor_connections[image_key]
 
 if __name__ == "__main__":
     import uvicorn
