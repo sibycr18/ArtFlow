@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useProjects } from '../contexts/ProjectContext';
 import { useAuth } from '../context/AuthContext';
 import { CanvasProvider } from '../contexts/CanvasContext';
+import { ImageEditorProvider } from '../contexts/ImageEditorContext';
 import Canvas from '../components/Canvas';
 import CollaborativeDocument from '../components/CollaborativeDocument';
 import ImageEditor from '../components/ImageEditor';
@@ -85,7 +86,21 @@ export default function EditorView() {
           />
         );
       case 'image':
-        return <ImageEditor fileName={file.name} onClose={handleClose} />;
+        return (
+          <ImageEditorProvider
+            projectId={projectId!}
+            fileId={fileId!}
+            userId={user?.sub || 'anonymous'}
+          >
+            <ImageEditor 
+              fileName={file.name} 
+              onClose={handleClose}
+              projectId={projectId}
+              fileId={fileId}
+              userId={user?.sub || 'anonymous'}
+            />
+          </ImageEditorProvider>
+        );
       default:
         return <div>Unsupported file type</div>;
     }

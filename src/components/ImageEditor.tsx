@@ -1,18 +1,43 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { 
   ArrowLeft, Download, RotateCcw, RotateCw, ZoomIn, ZoomOut, 
-  Maximize2, Minimize2, Crop, Trash2, Undo, Redo, Upload, ChevronDown 
+  Maximize2, Minimize2, Crop, Trash2, Undo, Redo, Upload, ChevronDown,
+  RefreshCw
 } from 'lucide-react';
+import { useParams } from 'react-router-dom';
+import { useImageEditor } from '../contexts/ImageEditorContext';
 
 interface ImageEditorProps {
   fileName?: string;
   onClose?: () => void;
+  projectId?: string;
+  fileId?: string;
+  userId?: string;
 }
 
-const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
+const ImageEditor: React.FC<ImageEditorProps> = ({ 
+  fileName, 
+  onClose,
+  projectId: propProjectId, 
+  fileId: propFileId, 
+  userId: propUserId
+}) => {
+  const { id: paramProjectId } = useParams<{ id: string }>();
+  const projectId = propProjectId || paramProjectId || 'default';
+  const fileId = propFileId || fileName || 'default';
+  const userId = propUserId || 'default';
+
+  const { 
+    isConnected, 
+    connectionError, 
+    sendFilterOperation,
+    sendImageUpload,
+    setOnRemoteImageOperation
+  } = useImageEditor();
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const baseCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [baseCanvas, setBaseCanvas] = useState<HTMLCanvasElement | null>(null);
   const [scale, setScale] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [originalImage, setOriginalImage] = useState<HTMLImageElement | null>(null);
@@ -22,7 +47,17 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
   const [isDrawingCrop, setIsDrawingCrop] = useState(false);
   const [cropStartPoint, setCropStartPoint] = useState<{ x: number; y: number } | null>(null);
   const [currentPoint, setCurrentPoint] = useState<{ x: number; y: number } | null>(null);
-  const [activeFilter, setActiveFilter] = useState<string>('none');
+  const [filterValues, setFilterValues] = useState<Record<string, number>>({
+    grayscale: 0,
+    sepia: 0,
+    invert: 0,
+    vintage: 0,
+    cool: 0,
+    warm: 0,
+    blur: 0,
+    sharpen: 0,
+    contrast: 0,
+  });
   const [isFiltersExpanded, setIsFiltersExpanded] = useState(false);
   const [isTransformExpanded, setIsTransformExpanded] = useState(true);
   const [isActionsExpanded, setIsActionsExpanded] = useState(true);
@@ -44,7 +79,60 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
     
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     saveToHistory(imageData);
-  }, []);
+
+    // Set up handler for remote image operations
+    setOnRemoteImageOperation((operation) => {
+      if (operation.type === 'filter') {
+        const remoteFilterType = operation.data.filterType;
+        const remoteFilterValue = operation.data.filterValue;
+        console.log('Received remote filter change:', remoteFilterType, 'value:', remoteFilterValue);
+        
+        // Create a copy of the current filter values and update with the remote change
+        const newFilterValues = {...filterValues, [remoteFilterType]: remoteFilterValue};
+        
+        // Update the filter values in our state
+        setFilterValues(newFilterValues);
+        
+        // Start from scratch: clear canvas and draw original image 
+        if (canvas && ctx && originalImage) {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(originalImage, 0, 0, canvas.width, canvas.height);
+        }
+        
+        // Apply all filters from scratch with the updated values
+        applyFilters(newFilterValues);
+      }
+      else if (operation.type === 'upload') {
+        console.log('Received remote image upload');
+        
+        // Load the received image
+        const remoteImageData = operation.data.imageData;
+        
+        const img = new Image();
+        img.onload = () => {
+          const canvas = canvasRef.current;
+          const ctx = canvas?.getContext('2d');
+          if (!canvas || !ctx) return;
+
+          // Set canvas size to match image dimensions
+          canvas.width = img.width;
+          canvas.height = img.height;
+
+          // Clear canvas
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          // Draw image
+          ctx.drawImage(img, 0, 0);
+          setOriginalImage(img);
+
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          saveToHistory(imageData);
+        };
+        img.src = remoteImageData;
+      }
+    });
+  }, [setOnRemoteImageOperation]);
 
   const saveToHistory = (imageData: ImageData) => {
     setHistory(prev => [...prev.slice(0, historyIndex + 1), imageData]);
@@ -121,7 +209,9 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
 
     const reader = new FileReader();
     reader.onload = (event) => {
+      const imageDataUrl = event.target?.result as string;
       const img = new Image();
+      
       img.onload = () => {
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext('2d');
@@ -141,8 +231,12 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
 
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         saveToHistory(imageData);
+        
+        // Send image to other users
+        sendImageUpload(imageDataUrl);
       };
-      img.src = event.target?.result as string;
+      
+      img.src = imageDataUrl;
     };
     reader.readAsDataURL(file);
   };
@@ -174,13 +268,18 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
 
     // Save current canvas state to baseCanvas
     const canvas = canvasRef.current;
-    const baseCanvas = baseCanvasRef.current;
-    if (canvas && baseCanvas) {
-      baseCanvas.width = canvas.width;
-      baseCanvas.height = canvas.height;
-      const baseCtx = baseCanvas.getContext('2d');
+    if (canvas) {
+      // Create or reuse the baseCanvas
+      const newBaseCanvas = baseCanvas || document.createElement('canvas');
+      newBaseCanvas.width = canvas.width;
+      newBaseCanvas.height = canvas.height;
+      const baseCtx = newBaseCanvas.getContext('2d');
       if (baseCtx) {
         baseCtx.drawImage(canvas, 0, 0);
+        // Update state instead of directly modifying ref
+        if (!baseCanvas) {
+          setBaseCanvas(newBaseCanvas);
+        }
       }
     }
 
@@ -198,7 +297,6 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
 
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
-    const baseCanvas = baseCanvasRef.current;
     if (!ctx || !canvas || !baseCanvas) return;
 
     // Clear and restore from base canvas
@@ -260,18 +358,17 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
     setCropStartPoint(null);
 
     // Create backup canvas if it doesn't exist
-    if (!baseCanvasRef.current) {
-      const baseCanvas = document.createElement('canvas');
-      baseCanvasRef.current = baseCanvas;
+    if (!baseCanvas) {
+      const newBaseCanvas = document.createElement('canvas');
+      setBaseCanvas(newBaseCanvas);
     }
   };
 
   const applyCrop = () => {
-    if (!cropStartPoint || !currentPoint) return;
+    if (!cropStartPoint || !currentPoint || !baseCanvas) return;
 
     const canvas = canvasRef.current;
-    const baseCanvas = baseCanvasRef.current;
-    if (!canvas || !baseCanvas) return;
+    if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -325,9 +422,19 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
     setIsDrawingCrop(false);
     setCropStartPoint(null);
     setCurrentPoint(null);
+    
+    // Restore original canvas from baseCanvas if it exists
+    if (baseCanvas) {
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d');
+      if (canvas && ctx && originalImage) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(originalImage, 0, 0, canvas.width, canvas.height);
+      }
+    }
   };
 
-  const applyFilter = (filterType: string) => {
+  const applyFilters = (newFilterValues: Record<string, number>) => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!ctx || !canvas) return;
@@ -338,82 +445,141 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
       ctx.drawImage(originalImage, 0, 0, canvas.width, canvas.height);
     }
 
+    // Check if any filter has a non-zero value
+    const hasActiveFilter = Object.values(newFilterValues).some(value => value > 0);
+    
+    // If no active filters, just save the current state
+    if (!hasActiveFilter) {
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      saveToHistory(imageData);
+      return;
+    }
+
     // Get image data after restoring original
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
 
-    // Apply filter
+    // Apply all filters with non-zero intensity in sequence
     for (let i = 0; i < data.length; i += 4) {
       const r = data[i];
       const g = data[i + 1];
       const b = data[i + 2];
 
-      switch (filterType) {
-        case 'grayscale':
-          const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-          data[i] = gray;
-          data[i + 1] = gray;
-          data[i + 2] = gray;
-          break;
+      let newR = r;
+      let newG = g;
+      let newB = b;
 
-        case 'sepia':
-          data[i] = Math.min(255, (r * 0.393) + (g * 0.769) + (b * 0.189));
-          data[i + 1] = Math.min(255, (r * 0.349) + (g * 0.686) + (b * 0.168));
-          data[i + 2] = Math.min(255, (r * 0.272) + (g * 0.534) + (b * 0.131));
-          break;
+      // Apply grayscale with intensity
+      if (newFilterValues.grayscale > 0) {
+        const gray = 0.299 * newR + 0.587 * newG + 0.114 * newB;
+        const intensity = newFilterValues.grayscale / 100;
+        newR = newR * (1 - intensity) + gray * intensity;
+        newG = newG * (1 - intensity) + gray * intensity;
+        newB = newB * (1 - intensity) + gray * intensity;
+      }
 
-        case 'invert':
-          data[i] = 255 - r;
-          data[i + 1] = 255 - g;
-          data[i + 2] = 255 - b;
-          break;
+      // Apply sepia with intensity
+      if (newFilterValues.sepia > 0) {
+        const intensity = newFilterValues.sepia / 100;
+        const sepiaR = Math.min(255, (newR * 0.393) + (newG * 0.769) + (newB * 0.189));
+        const sepiaG = Math.min(255, (newR * 0.349) + (newG * 0.686) + (newB * 0.168));
+        const sepiaB = Math.min(255, (newR * 0.272) + (newG * 0.534) + (newB * 0.131));
+        
+        newR = newR * (1 - intensity) + sepiaR * intensity;
+        newG = newG * (1 - intensity) + sepiaG * intensity;
+        newB = newB * (1 - intensity) + sepiaB * intensity;
+      }
 
-        case 'vintage':
-          const avg = (r + g + b) / 3;
-          data[i] = Math.min(255, avg + 40);
-          data[i + 1] = Math.min(255, avg + 20);
-          data[i + 2] = avg;
-          break;
+      // Apply invert with intensity
+      if (newFilterValues.invert > 0) {
+        const intensity = newFilterValues.invert / 100;
+        newR = newR * (1 - intensity) + (255 - newR) * intensity;
+        newG = newG * (1 - intensity) + (255 - newG) * intensity;
+        newB = newB * (1 - intensity) + (255 - newB) * intensity;
+      }
 
-        case 'cool':
-          data[i] = r * 0.9;
-          data[i + 1] = g;
-          data[i + 2] = Math.min(255, b * 1.2);
-          break;
+      // Apply vintage with intensity
+      if (newFilterValues.vintage > 0) {
+        const avg = (newR + newG + newB) / 3;
+        const intensity = newFilterValues.vintage / 100;
+        
+        const vintageR = Math.min(255, avg + 40);
+        const vintageG = Math.min(255, avg + 20);
+        const vintageB = avg;
+        
+        newR = newR * (1 - intensity) + vintageR * intensity;
+        newG = newG * (1 - intensity) + vintageG * intensity;
+        newB = newB * (1 - intensity) + vintageB * intensity;
+      }
 
-        case 'warm':
-          data[i] = Math.min(255, r * 1.2);
-          data[i + 1] = g;
-          data[i + 2] = b * 0.8;
-          break;
+      // Apply cool with intensity
+      if (newFilterValues.cool > 0) {
+        const intensity = newFilterValues.cool / 100;
+        const coolR = newR * 0.9;
+        const coolG = newG;
+        const coolB = Math.min(255, newB * 1.2);
+        
+        newR = newR * (1 - intensity) + coolR * intensity;
+        newG = newG * (1 - intensity) + coolG * intensity;
+        newB = newB * (1 - intensity) + coolB * intensity;
+      }
 
-        case 'blur':
-          // Simple box blur
-          if (i % (canvas.width * 4) < canvas.width * 4 - 4 && i > canvas.width * 4) {
+      // Apply warm with intensity
+      if (newFilterValues.warm > 0) {
+        const intensity = newFilterValues.warm / 100;
+        const warmR = Math.min(255, newR * 1.2);
+        const warmG = newG;
+        const warmB = newB * 0.8;
+        
+        newR = newR * (1 - intensity) + warmR * intensity;
+        newG = newG * (1 - intensity) + warmG * intensity;
+        newB = newB * (1 - intensity) + warmB * intensity;
+      }
+
+      // Apply contrast with intensity (replaces high-contrast)
+      if (newFilterValues.contrast > 0) {
+        const intensity = newFilterValues.contrast / 100;
+        const factor = 1 + intensity;
+        const contrastR = Math.min(255, Math.max(0, (newR - 128) * factor + 128));
+        const contrastG = Math.min(255, Math.max(0, (newG - 128) * factor + 128));
+        const contrastB = Math.min(255, Math.max(0, (newB - 128) * factor + 128));
+        
+        newR = newR * (1 - intensity) + contrastR * intensity;
+        newG = newG * (1 - intensity) + contrastG * intensity;
+        newB = newB * (1 - intensity) + contrastB * intensity;
+      }
+
+      // Apply blur and sharpen only at specific intervals to improve performance
+      if ((i % 4) === 0 && i % (canvas.width * 4) < canvas.width * 4 - 4 && i > canvas.width * 4) {
+        // Apply blur with intensity
+        if (newFilterValues.blur > 0) {
+          const intensity = newFilterValues.blur / 100;
             const avgR = (data[i - 4] + data[i] + data[i + 4] + data[i - canvas.width * 4] + data[i + canvas.width * 4]) / 5;
             const avgG = (data[i - 3] + data[i + 1] + data[i + 5] + data[i - canvas.width * 4 + 1] + data[i + canvas.width * 4 + 1]) / 5;
             const avgB = (data[i - 2] + data[i + 2] + data[i + 6] + data[i - canvas.width * 4 + 2] + data[i + canvas.width * 4 + 2]) / 5;
-            data[i] = avgR;
-            data[i + 1] = avgG;
-            data[i + 2] = avgB;
-          }
-          break;
+          
+          newR = newR * (1 - intensity) + avgR * intensity;
+          newG = newG * (1 - intensity) + avgG * intensity;
+          newB = newB * (1 - intensity) + avgB * intensity;
+        }
 
-        case 'sharpen':
-          if (i % (canvas.width * 4) < canvas.width * 4 - 4 && i > canvas.width * 4) {
-            data[i] = Math.min(255, Math.max(0, r * 2 - (data[i - 4] + data[i + 4] + data[i - canvas.width * 4] + data[i + canvas.width * 4]) / 4));
-            data[i + 1] = Math.min(255, Math.max(0, g * 2 - (data[i - 3] + data[i + 5] + data[i - canvas.width * 4 + 1] + data[i + canvas.width * 4 + 1]) / 4));
-            data[i + 2] = Math.min(255, Math.max(0, b * 2 - (data[i - 2] + data[i + 6] + data[i - canvas.width * 4 + 2] + data[i + canvas.width * 4 + 2]) / 4));
-          }
-          break;
-
-        case 'high-contrast':
-          const factor = 1.5;
-          data[i] = Math.min(255, Math.max(0, (r - 128) * factor + 128));
-          data[i + 1] = Math.min(255, Math.max(0, (g - 128) * factor + 128));
-          data[i + 2] = Math.min(255, Math.max(0, (b - 128) * factor + 128));
-          break;
+        // Apply sharpen with intensity
+        if (newFilterValues.sharpen > 0) {
+          const intensity = newFilterValues.sharpen / 100;
+          const sharpR = Math.min(255, Math.max(0, newR * 2 - (data[i - 4] + data[i + 4] + data[i - canvas.width * 4] + data[i + canvas.width * 4]) / 4));
+          const sharpG = Math.min(255, Math.max(0, newG * 2 - (data[i - 3] + data[i + 5] + data[i - canvas.width * 4 + 1] + data[i + canvas.width * 4 + 1]) / 4));
+          const sharpB = Math.min(255, Math.max(0, newB * 2 - (data[i - 2] + data[i + 6] + data[i - canvas.width * 4 + 2] + data[i + canvas.width * 4 + 2]) / 4));
+          
+          newR = newR * (1 - intensity) + sharpR * intensity;
+          newG = newG * (1 - intensity) + sharpG * intensity;
+          newB = newB * (1 - intensity) + sharpB * intensity;
+        }
       }
+
+      // Set the final pixel values
+      data[i] = newR;
+      data[i + 1] = newG;
+      data[i + 2] = newB;
     }
 
     // Put the modified image data back
@@ -423,16 +589,68 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
     saveToHistory(imageData);
   };
 
-  const toggleFilter = (filterType: string) => {
-    // If clicking the active filter, remove it
-    if (activeFilter === filterType) {
-      setActiveFilter('none');
-      applyFilter('none');
-    } else {
-      // Apply new filter
-      setActiveFilter(filterType);
-      applyFilter(filterType);
+  // Update a filter value and broadcast the change
+  const handleFilterChange = (filterType: string, value: number) => {
+    setFilterValues(prev => ({...prev, [filterType]: value}));
+  };
+
+  // Send filter update when slider is released
+  const handleFilterChangeComplete = (filterType: string, value: number) => {
+    console.log(`Filter ${filterType} set to ${value}`);
+    
+    // Create a copy of current filter values with the new value
+    const newFilterValues = {...filterValues, [filterType]: value};
+    
+    // Update state
+    setFilterValues(newFilterValues);
+    
+    // Start from scratch: clear canvas and draw original image
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (canvas && ctx && originalImage) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(originalImage, 0, 0, canvas.width, canvas.height);
     }
+    
+    // Apply all filters with the new values
+    applyFilters(newFilterValues);
+    
+    // Send filter type and value to server
+    sendFilterOperation(filterType, value);
+    console.log(`Sending filter update: ${filterType}=${value} via WebSocket`);
+  };
+
+  // Reset all filters - simplify to match our new approach
+  const resetAllFilters = () => {
+    // Create reset values (all zeros)
+    const resetValues = Object.keys(filterValues).reduce((acc, key) => {
+      acc[key] = 0;
+      return acc;
+    }, {} as Record<string, number>);
+    
+    // Update state
+    setFilterValues(resetValues);
+    
+    // Start from scratch: clear canvas and draw original image
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (canvas && ctx && originalImage) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(originalImage, 0, 0, canvas.width, canvas.height);
+    }
+    
+    // Apply filters (which will effectively be none)
+    applyFilters(resetValues);
+    
+    // Broadcast reset for each filter that was non-zero
+    Object.keys(filterValues).forEach(filterType => {
+      if (filterValues[filterType] > 0) {
+        sendFilterOperation(filterType, 0);
+        console.log(`Reset filter ${filterType} to 0, sent update via WebSocket`);
+      }
+    });
+    
+    console.log('Reset all filters complete');
   };
 
   const handleScaleChange = (value: number) => {
@@ -456,7 +674,15 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
               <h1 className="text-xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
                 {fileName}
               </h1>
-              <p className="text-sm text-gray-600">Image Editor</p>
+              <p className="text-sm text-gray-600">
+                Image Editor 
+                {isConnected ? 
+                  <span className="text-green-500 ml-2">● Connected</span> : 
+                  <span className="text-red-500 ml-2">● Disconnected</span>}
+              </p>
+              {connectionError && (
+                <p className="text-xs text-red-500">{connectionError}</p>
+              )}
             </div>
           </div>
         </div>
@@ -468,17 +694,28 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
             <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
               {/* Filters */}
               <div className="bg-white rounded-lg border border-purple-100 p-3 shadow-sm">
+                <div className="flex items-center justify-between mb-2">
                 <button 
                   onClick={() => setIsFiltersExpanded(!isFiltersExpanded)}
-                  className="w-full flex items-center justify-between text-sm font-medium text-gray-700"
+                    className="flex items-center text-sm font-medium text-gray-700"
                 >
                   <span>Filters</span>
                   <ChevronDown 
-                    className={`w-4 h-4 transition-transform ${isFiltersExpanded ? 'transform rotate-180' : ''}`} 
+                      className={`w-4 h-4 ml-1 transition-transform ${isFiltersExpanded ? 'transform rotate-180' : ''}`} 
                   />
                 </button>
+                  
+                  <button
+                    onClick={resetAllFilters}
+                    className="p-1 rounded-md hover:bg-purple-50 text-purple-600"
+                    title="Reset all filters"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </button>
+                </div>
+                
                 {isFiltersExpanded && (
-                  <div className="space-y-2 mt-3">
+                  <div className="space-y-4 mt-3">
                     {[
                       { type: 'grayscale', label: 'Grayscale' },
                       { type: 'sepia', label: 'Sepia' },
@@ -488,19 +725,24 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
                       { type: 'warm', label: 'Warm' },
                       { type: 'blur', label: 'Blur' },
                       { type: 'sharpen', label: 'Sharpen' },
-                      { type: 'high-contrast', label: 'High Contrast' }
+                      { type: 'contrast', label: 'Contrast' }
                     ].map(({ type, label }) => (
-                      <button
-                        key={type}
-                        onClick={() => toggleFilter(type)}
-                        className={`w-full px-3 py-1.5 rounded-lg text-sm font-medium ${
-                          activeFilter === type
-                            ? 'bg-purple-100 text-purple-700'
-                            : 'bg-purple-50 hover:bg-purple-100 text-purple-600'
-                        }`}
-                      >
-                        {label}
-                      </button>
+                      <div key={type} className="filter-slider">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium text-gray-700">{label}</span>
+                          <span className="text-xs font-medium text-gray-500">{filterValues[type]}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={filterValues[type]}
+                          onChange={(e) => handleFilterChange(type, parseInt(e.target.value))}
+                          onMouseUp={(e) => handleFilterChangeComplete(type, parseInt((e.target as HTMLInputElement).value))}
+                          onTouchEnd={(e) => handleFilterChangeComplete(type, parseInt((e.target as HTMLInputElement).value))}
+                          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                        />
+                      </div>
                     ))}
                   </div>
                 )}
@@ -572,6 +814,7 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
                 </button>
                 {isActionsExpanded && (
                   <div className="space-y-2 mt-3">
+                    {/* Remove undo/redo buttons by commenting them out 
                     <div className="grid grid-cols-2 gap-2 mb-2">
                       <button
                         onClick={undo}
@@ -590,6 +833,7 @@ const ImageEditor: React.FC<ImageEditorProps> = ({ fileName, onClose }) => {
                         Redo
                       </button>
                     </div>
+                    */}
                     <button
                       onClick={triggerFileInput}
                       className="w-full px-4 py-2 bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 font-medium flex items-center justify-center gap-2"
