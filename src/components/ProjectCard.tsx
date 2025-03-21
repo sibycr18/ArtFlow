@@ -5,6 +5,7 @@ import type { Project } from '../types';
 import { useProjects } from '../contexts/ProjectContext';
 import ContextMenu from './common/ContextMenu';
 import ConfirmationDialog from './common/ConfirmationDialog';
+import RenameDialog from './common/RenameDialog';
 
 interface ProjectCardProps {
   project: Project;
@@ -16,15 +17,29 @@ export default function ProjectCard({ project }: ProjectCardProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showRenameDialog, setShowRenameDialog] = useState(false);
   const [newName, setNewName] = useState(project.name);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY });
   };
 
-  const handleDelete = () => {
-    deleteProject(project.id);
-    setShowDeleteConfirm(false);
+  const handleDelete = async () => {
+    setIsDeleting(true);
+    setDeleteError(null);
+    
+    try {
+      const success = await deleteProject(project.id);
+      if (!success) {
+        throw new Error('Failed to delete project');
+      }
+      setShowDeleteConfirm(false);
+    } catch (error) {
+      setDeleteError('Failed to delete project. Please try again.');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleRename = () => {
@@ -42,7 +57,10 @@ export default function ProjectCard({ project }: ProjectCardProps) {
     },
     {
       label: 'Delete',
-      onClick: () => setShowDeleteConfirm(true),
+      onClick: () => {
+        setDeleteError(null);
+        setShowDeleteConfirm(true);
+      },
       icon: Trash2,
       danger: true
     }
@@ -83,44 +101,33 @@ export default function ProjectCard({ project }: ProjectCardProps) {
 
       <ConfirmationDialog
         isOpen={showDeleteConfirm}
-        onClose={() => setShowDeleteConfirm(false)}
+        onClose={() => {
+          setShowDeleteConfirm(false);
+          setDeleteError(null);
+        }}
         onConfirm={handleDelete}
         title="Delete Project"
-        message={`Are you sure you want to delete "${project.name}"? This action cannot be undone.`}
-        confirmText="Delete"
+        message={
+          <>
+            <p>Are you sure you want to delete "{project.name}"? This action cannot be undone.</p>
+            <p className="mt-2 text-sm text-gray-500">All files in this project will be permanently deleted.</p>
+            {deleteError && (
+              <p className="mt-2 text-sm text-red-600">{deleteError}</p>
+            )}
+          </>
+        }
+        confirmText={isDeleting ? "Deleting..." : "Delete"}
+        confirmDisabled={isDeleting}
         danger={true}
       />
 
-      {showRenameDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="fixed inset-0 bg-black/50" onClick={() => setShowRenameDialog(false)} />
-          <div className="relative bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl border border-indigo-100">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Rename Project</h2>
-            <input
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="Enter new name"
-              autoFocus
-            />
-            <div className="flex justify-end space-x-3">
-              <button
-                onClick={() => setShowRenameDialog(false)}
-                className="px-4 py-2 text-gray-600 hover:bg-indigo-50 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleRename}
-                className="px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg transition-colors"
-              >
-                Rename
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <RenameDialog
+        isOpen={showRenameDialog}
+        onClose={() => setShowRenameDialog(false)}
+        onConfirm={handleRename}
+        initialName={project.name}
+        setNewName={setNewName}
+      />
     </>
   );
 }

@@ -13,7 +13,8 @@ from database import (
     search_users_by_email, create_project, add_collaborator, 
     remove_collaborator, get_project_collaborators, get_project_by_id,
     create_project_via_rpc, get_user_projects, create_file, get_project_files,
-    update_file, delete_file, add_project_message, get_project_messages
+    update_file, delete_file, add_project_message, get_project_messages,
+    delete_project
 )
 import asyncio
 from pydantic import BaseModel
@@ -645,6 +646,17 @@ async def get_project_message_history(
         return messages
     except Exception as e:
         logger.error(f"Get project messages error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/projects/{project_id}")
+async def delete_project_endpoint(project_id: str, admin_id: str):
+    try:
+        success = await delete_project(project_id, admin_id)
+        if not success:
+            raise HTTPException(status_code=403, detail="Failed to delete project. Not authorized or project not found.")
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Delete project error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 // Configuration file for global constants and environment variables
+import logger from './utils/logger';
 
 // API base URL with environment variable fallback
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://artflow-backend-64f27556b9a4.herokuapp.com';
@@ -28,3 +29,9 @@ export const APP_VERSION = '1.0.0';
 
 // Default timeout for API requests in milliseconds
 export const API_TIMEOUT = 30000; 
+
+// Log all configured URLs
+logger.info('Config', 'Application initialized with the following endpoints:');
+logger.info('Config', `API Base URL: ${API_BASE_URL}`);
+logger.info('Config', `WebSocket URL: ${WS_URL}`);
+logger.info('Config', `Supabase URL: ${SUPABASE_URL.replace(/^(https?:\/\/)([^:]+)(.*)$/, '$1***$3')}`); 
