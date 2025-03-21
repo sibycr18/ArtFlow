@@ -19,9 +19,155 @@ from database import (
 import asyncio
 from pydantic import BaseModel
 import sys
+import redis
 
 # Load environment variables
 load_dotenv()
+
+# Initialize Redis client if enabled
+REDIS_ENABLED = os.getenv("REDIS_ENABLED", "false").lower() == "true"
+redis_client = None
+
+# Buffer for collecting drawing events before sending to Redis
+# Structure: {project_id: {file_id: [events]}}
+redis_event_buffer = {}
+last_redis_flush_time = time.time()
+REDIS_FLUSH_INTERVAL = 5  # Flush buffer to Redis every 5 seconds
+
+if REDIS_ENABLED:
+    try:
+        REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+        REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+        REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
+        
+        # Create Redis connection
+        redis_client = redis.Redis(
+            host=REDIS_HOST,
+            port=REDIS_PORT,
+            password=REDIS_PASSWORD,
+            ssl=True if "upstash.io" in REDIS_HOST else False,  # Use SSL for Upstash
+            decode_responses=True  # Match persistence service settings
+        )
+        
+        # Test connection
+        redis_client.ping()
+        logging.info(f"Successfully connected to Redis at {REDIS_HOST}:{REDIS_PORT}")
+    except Exception as e:
+        logging.error(f"Failed to connect to Redis: {str(e)}")
+        REDIS_ENABLED = False
+        redis_client = None
+
+# Helper function to add an event to the buffer
+def add_to_redis_buffer(event):
+    """Add event to buffer for batched processing"""
+    project_id = event["project_id"]
+    file_id = event["file_id"]
+    
+    # Initialize buffer structure if needed
+    if project_id not in redis_event_buffer:
+        redis_event_buffer[project_id] = {}
+    if file_id not in redis_event_buffer[project_id]:
+        redis_event_buffer[project_id][file_id] = []
+    
+    # Add to buffer
+    redis_event_buffer[project_id][file_id].append(event)
+    logger.debug(f"Added {event['event_type']} event to buffer for {project_id}/{file_id}")
+
+# Helper function to flush the buffer to Redis
+async def flush_redis_buffer():
+    """Push all buffered events to Redis and clear the buffer"""
+    global last_redis_flush_time
+    
+    if not REDIS_ENABLED or redis_client is None:
+        # Clear buffer if Redis is not available to prevent memory growth
+        redis_event_buffer.clear()
+        return
+    
+    try:
+        total_events = 0
+        batch_count = 0
+        
+        # Process buffer project by project, file by file
+        for project_id, files in redis_event_buffer.items():
+            for file_id, events in files.items():
+                if not events:
+                    continue
+                
+                batch_count += 1
+                events_count = len(events)
+                total_events += events_count
+                
+                if events_count == 1:
+                    # Single event - no need for batching
+                    event_json = json.dumps(events[0])
+                    redis_client.lpush('drawing_events_queue', event_json)
+                    logger.debug(f"Flushed single event for {project_id}/{file_id}")
+                else:
+                    # Multiple events - create a batch
+                    batch = {
+                        "project_id": project_id,
+                        "file_id": file_id,
+                        "event_type": "batch",
+                        "events": events,
+                        "count": events_count,
+                        "timestamp": time.time() * 1000
+                    }
+                    batch_json = json.dumps(batch)
+                    redis_client.lpush('drawing_events_queue', batch_json)
+                    logger.info(f"Flushed batch of {events_count} events for {project_id}/{file_id}")
+        
+        # Clear buffer after successful flush
+        redis_event_buffer.clear()
+        
+        # Trim queue occasionally
+        if total_events > 0:
+            redis_client.ltrim('drawing_events_queue', 0, 4999)  # Keep last 5000 events
+            
+        if batch_count > 0:
+            logger.info(f"Redis buffer flush complete: {total_events} events in {batch_count} batches")
+            
+        last_redis_flush_time = time.time()
+            
+    except Exception as e:
+        logger.error(f"Error flushing Redis buffer: {str(e)}")
+        # Don't clear buffer on error to retry on next flush
+
+# Helper function that checks if it's time to flush and triggers flush if needed
+async def check_and_flush_redis_buffer():
+    """Check if it's time to flush the buffer and do so if needed"""
+    current_time = time.time()
+    if (current_time - last_redis_flush_time) >= REDIS_FLUSH_INTERVAL:
+        await flush_redis_buffer()
+
+# Helper function to handle adding event to Redis (now using buffer)
+async def push_to_redis_queue(event):
+    """
+    Add event to buffer for batched processing to Redis.
+    This implementation batches events but does not block the caller.
+    """
+    if not REDIS_ENABLED:
+        return
+        
+    try:
+        # Special case for clear events - flush immediately
+        if event['event_type'] == 'clear':
+            # First flush existing buffer for this project/file
+            await flush_redis_buffer()
+            
+            # Then send the clear event directly
+            event_json = json.dumps(event)
+            redis_client.lpush('drawing_events_queue', event_json)
+            logger.info(f"Sent clear event directly to Redis for {event['project_id']}/{event['file_id']}")
+            return
+        
+        # For drawing events, add to buffer
+        add_to_redis_buffer(event)
+        
+        # Check if it's time to flush the buffer
+        await check_and_flush_redis_buffer()
+            
+    except Exception as e:
+        logger.error(f"Error in Redis queue operation: {str(e)}")
 
 # Create logs directory if it doesn't exist
 if not os.path.exists('logs'):
@@ -36,7 +182,7 @@ logging.basicConfig(
     level=logging.WARNING,  # Set default level to WARNING
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(log_file),
+        logging.FileHandler(log_file, mode='a'),
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -214,15 +360,37 @@ class ConnectionManager:
         # Removed batch processing code
 
     async def _broadcast_to_others_immediate(self, project_id: str, file_id: str, user_id: str, message: dict):
-        """Immediate broadcast without buffering"""
-        if project_id in self.active_connections and file_id in self.active_connections[project_id]:
-            for other_user_id, websocket in self.active_connections[project_id][file_id].items():
-                if other_user_id != user_id:
-                    try:
-                        await websocket.send_json(message)
-                    except Exception as e:
-                        self.logger.error(f"Error sending message to user {other_user_id}: {str(e)}")
-                        
+        """
+        Immediate broadcast without buffering - optimized for minimal latency
+        This is the critical real-time path and should be as fast as possible
+        """
+        # Quick check if we have anyone to send to
+        if project_id not in self.active_connections or file_id not in self.active_connections[project_id]:
+            return
+        
+        # Get a direct reference to avoid dict lookups in the loop
+        connections = self.active_connections[project_id][file_id]
+        
+        # Pre-serialize the message to JSON to do it only once
+        # Note: Only do this if all recipients need the exact same message
+        # If message customization per user is needed, remove this optimization
+        # message_json = json.dumps(message)
+        
+        # Create a list of send tasks
+        send_tasks = []
+        
+        # Gather all send operations without awaiting them yet
+        for other_user_id, websocket in connections.items():
+            if other_user_id != user_id:
+                # Add the send task to our list without awaiting
+                send_tasks.append(websocket.send_json(message))
+        
+        # Now execute all sends concurrently
+        if send_tasks:
+            # Use gather for maximum performance, with return_exceptions=True to prevent
+            # one failed send from affecting others
+            await asyncio.gather(*send_tasks, return_exceptions=True)
+
     async def broadcast_to_others(self, project_id: str, file_id: str, user_id: str, message: dict):
         """Send messages immediately without batching"""
         # All messages are sent immediately without any buffering or batching
@@ -349,62 +517,99 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str, file_id: str
         await manager.connect(websocket, project_id, file_id, user_id)
         logger.info(f"WebSocket connection established for User: {user_id}")
         
+        # Initialize flush timer
+        last_buffer_check = time.time()
+        
         while True:
             try:
-                # Wait for messages
-                data = await websocket.receive_json()
-                # Reduced logging - just log message type
-                logger.debug(f"Received {data.get('type')} message from User {user_id}")
-                
-                message_type = data.get("type")
-                
-                if message_type == "init":
-                    # Send confirmation
-                    logger.debug(f"Sending connection confirmation to User {user_id}")
-                    await websocket.send_json({
-                        "type": "connected",
-                        "data": {
-                            "project_id": project_id,
-                            "file_id": file_id,
-                            "user_id": user_id
-                        }
-                    })
-                elif message_type == "draw":
-                    # Minimal logging for drawing data
-                    logger.debug(f"Broadcasting draw from User: {user_id}")
+                # Wait for messages with a timeout to allow periodic buffer flushing
+                try:
+                    data = await asyncio.wait_for(websocket.receive_json(), timeout=1.0)
+                    # Process the message normally
+                    logger.debug(f"Received {data.get('type')} message from User {user_id}")
                     
-                    # Verify the data structure
-                    drawing_data = data.get('data')
-                    if not drawing_data:
-                        logger.error("No drawing data found in message")
-                        continue
+                    message_type = data.get("type")
                     
-                    # Broadcast drawing data to others first
-                    await manager.broadcast_to_others(project_id, file_id, user_id, data)
+                    if message_type == "init":
+                        # Send confirmation
+                        logger.debug(f"Sending connection confirmation to User {user_id}")
+                        await websocket.send_json({
+                            "type": "connected",
+                            "data": {
+                                "project_id": project_id,
+                                "file_id": file_id,
+                                "user_id": user_id
+                            }
+                        })
+                    elif message_type == "draw":
+                        # CRITICAL PATH: Broadcast drawing data to others FIRST
+                        # This ensures minimal latency for real-time updates
+                        logger.debug(f"Broadcasting draw from User: {user_id}")
+                        await manager.broadcast_to_others(project_id, file_id, user_id, data)
+                        
+                        # NON-CRITICAL PATH: Persistence operations 
+                        # Now buffered for batch processing
+                        if REDIS_ENABLED:
+                            drawing_data = data.get('data')
+                            if drawing_data:
+                                event = {
+                                    "project_id": project_id,
+                                    "file_id": file_id,
+                                    "user_id": user_id,
+                                    "data": drawing_data,
+                                    "timestamp": drawing_data.get("timestamp", time.time() * 1000),
+                                    "event_type": "draw"
+                                }
+                                # Add to buffer without awaiting
+                                asyncio.create_task(push_to_redis_queue(event))
+                        
+                    elif message_type == "clear":
+                        # CRITICAL PATH: Broadcast clear message FIRST
+                        logger.debug(f"Broadcasting clear message from User {user_id}")
+                        await manager.broadcast_to_others(project_id, file_id, user_id, data)
+                        
+                        # NON-CRITICAL PATH: Send clear event to Redis immediately
+                        if REDIS_ENABLED:
+                            event = {
+                                "project_id": project_id,
+                                "file_id": file_id,
+                                "user_id": user_id,
+                                "event_type": "clear",
+                                "timestamp": time.time() * 1000
+                            }
+                            # Clear events don't get buffered - they're sent right away
+                            asyncio.create_task(push_to_redis_queue(event))
+                    else:
+                        logger.warning(f"Unknown message type: {message_type}")
                     
-                    # Skip history for better performance
-                    # manager.add_to_history(project_id, file_id, user_id, drawing_data)
-                    
-                elif message_type == "clear":
-                    logger.debug(f"Broadcasting clear message from User {user_id}")
-                    await manager.broadcast_to_others(project_id, file_id, user_id, data)
-                else:
-                    logger.warning(f"Unknown message type: {message_type}")
+                except asyncio.TimeoutError:
+                    # No message received, check if we need to flush the buffer
+                    current_time = time.time()
+                    if (current_time - last_buffer_check) >= 1.0:  # Check every second
+                        asyncio.create_task(check_and_flush_redis_buffer())
+                        last_buffer_check = current_time
                 
             except Exception as e:
                 logger.error(f"Error processing message: {str(e)}")
-                await websocket.send_json({
-                    "type": "error",
-                    "data": {
-                        "message": "Error processing message",
-                        "error": str(e)
-                    }
-                })
+                try:
+                    await websocket.send_json({
+                        "type": "error",
+                        "data": {
+                            "message": "Error processing message",
+                            "error": str(e)
+                        }
+                    })
+                except:
+                    # If we can't send an error, the connection is probably closed
+                    break
     except Exception as e:
         logger.error(f"WebSocket error: {str(e)}")
     finally:
         logger.info(f"Cleaning up connection for User {user_id}")
         manager.disconnect(project_id, file_id, user_id)
+        
+        # Ensure buffer is flushed when client disconnects
+        asyncio.create_task(flush_redis_buffer())
 
 # Debug endpoints
 @app.get("/debug/list")
