@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Type, ArrowLeft, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, AlignJustify, Download } from 'lucide-react';
 
 interface DocumentProps {
@@ -13,17 +13,54 @@ const Document: React.FC<DocumentProps> = ({ fileName, onClose }) => {
   const [isItalic, setIsItalic] = useState(false);
   const [isUnderline, setIsUnderline] = useState(false);
   const [textAlign, setTextAlign] = useState('left');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
 
   const handleDownload = () => {
-    const blob = new Blob([content], { type: 'text/plain' });
+    const blob = new Blob([editorRef.current?.innerHTML || ''], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'document.txt';
+    a.download = 'document.html';
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  const applyFormatting = (command: string, value?: string) => {
+    document.execCommand(command, false, value);
+    editorRef.current?.focus();
+  };
+
+  const handleBoldClick = () => {
+    applyFormatting('bold');
+    setIsBold(!isBold);
+  };
+
+  const handleItalicClick = () => {
+    applyFormatting('italic');
+    setIsItalic(!isItalic);
+  };
+
+  const handleUnderlineClick = () => {
+    applyFormatting('underline');
+    setIsUnderline(!isUnderline);
+  };
+
+  const handleAlignClick = (align: string) => {
+    applyFormatting('justify' + align.charAt(0).toUpperCase() + align.slice(1));
+    setTextAlign(align);
+  };
+
+  const handleFontSizeChange = (size: number) => {
+    setFontSize(size);
+    applyFormatting('fontSize', size.toString());
+  };
+
+  // Initialize editor with default styles
+  useEffect(() => {
+    if (editorRef.current) {
+      editorRef.current.style.fontSize = `${fontSize}px`;
+    }
+  }, [fontSize]);
 
   return (
     <div className="fixed inset-0 bg-gradient-to-br from-purple-50 to-blue-50 overflow-hidden">
@@ -66,7 +103,7 @@ const Document: React.FC<DocumentProps> = ({ fileName, onClose }) => {
                       min="12"
                       max="48"
                       value={fontSize}
-                      onChange={(e) => setFontSize(parseInt(e.target.value))}
+                      onChange={(e) => handleFontSizeChange(parseInt(e.target.value))}
                       className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
                     />
                   </div>
@@ -76,7 +113,7 @@ const Document: React.FC<DocumentProps> = ({ fileName, onClose }) => {
                     <div className="text-sm font-medium text-gray-700 mb-2">Font Style</div>
                     <div className="grid grid-cols-3 gap-2">
                       <button
-                        onClick={() => setIsBold(!isBold)}
+                        onClick={handleBoldClick}
                         className={`p-2 rounded-lg flex flex-col items-center gap-1 transition-colors ${
                           isBold ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-purple-50 text-gray-700'
                         }`}
@@ -85,7 +122,7 @@ const Document: React.FC<DocumentProps> = ({ fileName, onClose }) => {
                         <span className="text-xs">Bold</span>
                       </button>
                       <button
-                        onClick={() => setIsItalic(!isItalic)}
+                        onClick={handleItalicClick}
                         className={`p-2 rounded-lg flex flex-col items-center gap-1 transition-colors ${
                           isItalic ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-purple-50 text-gray-700'
                         }`}
@@ -94,7 +131,7 @@ const Document: React.FC<DocumentProps> = ({ fileName, onClose }) => {
                         <span className="text-xs">Italic</span>
                       </button>
                       <button
-                        onClick={() => setIsUnderline(!isUnderline)}
+                        onClick={handleUnderlineClick}
                         className={`p-2 rounded-lg flex flex-col items-center gap-1 transition-colors ${
                           isUnderline ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-purple-50 text-gray-700'
                         }`}
@@ -117,7 +154,7 @@ const Document: React.FC<DocumentProps> = ({ fileName, onClose }) => {
                       ].map(({ icon: Icon, value, label }) => (
                         <button
                           key={value}
-                          onClick={() => setTextAlign(value)}
+                          onClick={() => handleAlignClick(value)}
                           className={`p-2 rounded-lg flex flex-col items-center gap-1 transition-colors ${
                             textAlign === value ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-purple-50 text-gray-700'
                           }`}
@@ -150,20 +187,13 @@ const Document: React.FC<DocumentProps> = ({ fileName, onClose }) => {
           {/* Document Area */}
           <div className="flex-1 bg-gray-50 overflow-auto flex items-center justify-center p-8">
             <div className="w-full max-w-4xl bg-white shadow-lg rounded-lg p-8">
-              <textarea
-                ref={textareaRef}
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                style={{
-                  fontSize: `${fontSize}px`,
-                  fontWeight: isBold ? 'bold' : 'normal',
-                  fontStyle: isItalic ? 'italic' : 'normal',
-                  textDecoration: isUnderline ? 'underline' : 'none',
-                  textAlign: textAlign,
-                }}
-                className="w-full h-full min-h-[500px] resize-none focus:outline-none"
-                placeholder="Start typing..."
-              />
+              <div
+                ref={editorRef}
+                contentEditable
+                className="w-full h-full min-h-[500px] focus:outline-none"
+                style={{ fontSize: `${fontSize}px` }}
+                onInput={(e) => setContent(e.currentTarget.innerHTML)}
+              ></div>
             </div>
           </div>
         </div>
