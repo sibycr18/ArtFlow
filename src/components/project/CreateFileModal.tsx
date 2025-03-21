@@ -17,7 +17,7 @@ interface CreateFileModalProps {
 
 export default function CreateFileModal({ onClose, projectId }: CreateFileModalProps) {
   const [fileName, setFileName] = useState('');
-  const [fileType, setFileType] = useState<'document' | 'canvas' | 'image'>('document');
+  const [fileType, setFileType] = useState<'document' | 'canvas' | 'image' | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { createFile } = useProjects();
@@ -27,6 +27,11 @@ export default function CreateFileModal({ onClose, projectId }: CreateFileModalP
     
     if (!fileName.trim()) {
       setError('File name is required');
+      return;
+    }
+
+    if (!fileType) {
+      setError('Please select a file type');
       return;
     }
 
@@ -51,7 +56,7 @@ export default function CreateFileModal({ onClose, projectId }: CreateFileModalP
       const newFile = await createFile(
         projectId, 
         fileName.trim(),
-        selectedType.apiType
+        fileType
       );
       
       if (!newFile) {

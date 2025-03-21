@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../config';
+import logger from './logger';
 
 // Production environment configuration with improved realtime performance
 const supabaseConfig = {
@@ -25,11 +26,11 @@ const supabaseConfig = {
 };
 
 // For debugging connection issues
-console.log("[Supabase] Initializing with URL:", SUPABASE_URL.replace(/^(https?:\/\/)([^:]+)(.*)$/, '$1***$3'));
-console.log("[Supabase] Realtime config:", JSON.stringify({
+logger.info('Supabase', `Initializing with URL: ${SUPABASE_URL.replace(/^(https?:\/\/)([^:]+)(.*)$/, '$1***$3')}`);
+logger.debug('Supabase', 'Realtime config:', {
   eventsPerSecond: supabaseConfig.realtime.params.eventsPerSecond,
   timeout: supabaseConfig.realtime.timeout
-}));
+});
 
 // Create and export the Supabase client instance with the proper configuration
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, supabaseConfig);

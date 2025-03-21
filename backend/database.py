@@ -592,4 +592,37 @@ async def get_project_messages(project_id: str, user_id: str, limit: int = 50) -
                 return []
     except Exception as e:
         logger.error(f"Error in get_project_messages: {str(e)}")
-        return [] 
+        return []
+
+async def delete_project(project_id: str, admin_id: str) -> bool:
+    """Delete a project and all its files"""
+    try:
+        # First check if project exists and user is admin
+        response = supabase_admin.table('projects').select('*').eq('id', project_id).eq('admin_id', admin_id).execute()
+        
+        if not response.data:
+            logger.error(f"Project not found or user is not admin: {project_id}, {admin_id}")
+            return False
+            
+        # Get all files for this project
+        files = await get_project_files(project_id)
+        
+        # Delete all files first
+        for file in files:
+            try:
+                # Delete file history if it exists
+                await clear_file_history(project_id, file['id'])
+                # Delete the file
+                await supabase_admin.table('files').delete().eq('id', file['id']).execute()
+            except Exception as e:
+                logger.error(f"Error deleting file {file['id']}: {str(e)}")
+                # Continue with other files even if one fails
+                
+        # Finally delete the project
+        response = supabase_admin.table('projects').delete().eq('id', project_id).eq('admin_id', admin_id).execute()
+        
+        logger.info(f"Deleted project {project_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Error in delete_project: {str(e)}")
+        return False 

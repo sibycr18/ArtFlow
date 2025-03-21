@@ -156,8 +156,45 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
   };
 
   // Delete a project
-  const deleteProject = (id: string) => {
-    setProjects(prev => prev.filter(p => p.id !== id));
+  const deleteProject = async (id: string): Promise<boolean> => {
+    if (!user?.id) return false;
+    
+    try {
+      // First get all files for this project
+      const projectFiles = await fetchProjectFiles(id);
+      
+      // Delete all files first
+      for (const file of projectFiles) {
+        await fileService.deleteFile(file.id);
+      }
+      
+      // Then delete the project
+      const response = await fetch(`${API_BASE_URL}/projects/${id}?admin_id=${user.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete project');
+      }
+      
+      // Update local state
+      setProjects(prev => prev.filter(p => p.id !== id));
+      
+      // Clear current project if it was the deleted one
+      if (currentProject?.id === id) {
+        setCurrentProject(null);
+        setFiles([]);
+        setLoadedProjectId(null);
+      }
+      
+      return true;
+    } catch (error) {
+      console.error("Error deleting project:", error);
+      return false;
+    }
   };
 
   // Rename a project
@@ -268,18 +305,19 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       const newFile = await fileService.createFile(projectId, name, fileType, user.id);
       
       if (newFile) {
+        // Update files state
         setFiles(prev => [...prev, newFile]);
         
-        // Also update the current project's files array
+        // Map the new file to the File interface
+        const mappedFile: File = {
+          id: newFile.id,
+          name: newFile.name,
+          type: mapBackendToUIFileType(newFile.file_type),
+          lastModified: new Date(newFile.updated_at).toLocaleDateString()
+        };
+        
+        // Update current project if needed
         if (currentProject && currentProject.id === projectId) {
-          // Map the new file to the File interface
-          const mappedFile: File = {
-            id: newFile.id,
-            name: newFile.name,
-            type: mapBackendToUIFileType(newFile.file_type),
-            lastModified: new Date(newFile.updated_at).toLocaleDateString()
-          };
-          
           setCurrentProject(prev => {
             if (!prev) return prev;
             return {
@@ -288,6 +326,17 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
             };
           });
         }
+
+        // Update projects array
+        setProjects(prev => prev.map(project => {
+          if (project.id === projectId) {
+            return {
+              ...project,
+              files: [...project.files, mappedFile]
+            };
+          }
+          return project;
+        }));
       }
       
       return newFile;

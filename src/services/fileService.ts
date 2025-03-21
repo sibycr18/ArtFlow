@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "../config";
+import logger from "../utils/logger";
 
 // Define file types
 export type FileType = "drawing" | "text" | "model";
@@ -16,7 +17,10 @@ export interface FileMetadata {
 export const fileService = {
   // Create a new file
   async createFile(projectId: string, name: string, fileType: FileType, userId: string): Promise<FileMetadata> {
-    const response = await fetch(`${API_BASE_URL}/files`, {
+    const url = `${API_BASE_URL}/files`;
+    logger.info('API', `Creating file: ${url}`);
+    
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -30,6 +34,7 @@ export const fileService = {
     });
 
     if (!response.ok) {
+      logger.error('API', `Failed to create file: ${response.status} ${response.statusText}`);
       throw new Error('Failed to create file');
     }
 
@@ -38,9 +43,13 @@ export const fileService = {
 
   // Get all files for a project
   async getProjectFiles(projectId: string): Promise<FileMetadata[]> {
-    const response = await fetch(`${API_BASE_URL}/files?project_id=${projectId}`);
+    const url = `${API_BASE_URL}/files?project_id=${projectId}`;
+    logger.info('API', `Fetching project files: ${url}`);
+    
+    const response = await fetch(url);
 
     if (!response.ok) {
+      logger.error('API', `Failed to fetch files: ${response.status} ${response.statusText}`);
       throw new Error('Failed to fetch files');
     }
 
@@ -49,7 +58,10 @@ export const fileService = {
 
   // Update a file
   async updateFile(fileId: string, updates: Partial<Pick<FileMetadata, 'name' | 'file_type'>>): Promise<FileMetadata> {
-    const response = await fetch(`${API_BASE_URL}/files/${fileId}`, {
+    const url = `${API_BASE_URL}/files/${fileId}`;
+    logger.info('API', `Updating file: ${url}`);
+    
+    const response = await fetch(url, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -58,6 +70,7 @@ export const fileService = {
     });
 
     if (!response.ok) {
+      logger.error('API', `Failed to update file: ${response.status} ${response.statusText}`);
       throw new Error('Failed to update file');
     }
 
@@ -66,11 +79,15 @@ export const fileService = {
 
   // Delete a file
   async deleteFile(fileId: string): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/files/${fileId}`, {
+    const url = `${API_BASE_URL}/files/${fileId}`;
+    logger.info('API', `Deleting file: ${url}`);
+    
+    const response = await fetch(url, {
       method: 'DELETE',
     });
 
     if (!response.ok) {
+      logger.error('API', `Failed to delete file: ${response.status} ${response.statusText}`);
       throw new Error('Failed to delete file');
     }
   },
