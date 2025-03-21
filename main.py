@@ -374,25 +374,37 @@ class ConnectionManager:
         # Get a direct reference to avoid dict lookups in the loop
         connections = self.active_connections[project_id][file_id]
         
-        # Pre-serialize the message to JSON to do it only once
-        # Note: Only do this if all recipients need the exact same message
-        # If message customization per user is needed, remove this optimization
-        # message_json = json.dumps(message)
+        # Track disconnected clients to clean up after broadcasting
+        disconnected_clients = []
         
         # Create a list of send tasks
         send_tasks = []
+        send_targets = {}
         
         # Gather all send operations without awaiting them yet
         for other_user_id, websocket in connections.items():
             if other_user_id != user_id:
                 # Add the send task to our list without awaiting
-                send_tasks.append(websocket.send_json(message))
+                task = websocket.send_json(message)
+                send_tasks.append(task)
+                send_targets[task] = other_user_id
         
-        # Now execute all sends concurrently
+        # Now execute all sends concurrently with proper error handling
         if send_tasks:
-            # Use gather for maximum performance, with return_exceptions=True to prevent
-            # one failed send from affecting others
-            await asyncio.gather(*send_tasks, return_exceptions=True)
+            results = await asyncio.gather(*send_tasks, return_exceptions=True)
+            
+            # Process results to identify disconnected clients
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    task = send_tasks[i]
+                    failed_user_id = send_targets[task]
+                    self.logger.warning(f"Failed to send to user {failed_user_id}: {str(result)}")
+                    disconnected_clients.append((project_id, file_id, failed_user_id))
+        
+        # Clean up disconnected clients
+        for p_id, f_id, failed_user_id in disconnected_clients:
+            self.logger.info(f"Removing disconnected client: {failed_user_id}")
+            self.disconnect(p_id, f_id, failed_user_id)
 
     async def broadcast_to_others(self, project_id: str, file_id: str, user_id: str, message: dict):
         """Send messages immediately without batching"""
@@ -977,6 +989,7 @@ async def document_websocket_endpoint(websocket: WebSocket, project_id: str, fil
                     }
                     
                     # Broadcast to other users
+                    disconnected_users = []
                     for other_user_id, conn in document_connections[document_key].items():
                         if other_user_id != user_id:  # Don't send back to originator
                             logger.debug(f"Broadcasting to user: {other_user_id}")
@@ -984,6 +997,13 @@ async def document_websocket_endpoint(websocket: WebSocket, project_id: str, fil
                                 await conn.send_json(broadcast_message)
                             except Exception as e:
                                 logger.error(f"Error broadcasting to {other_user_id}: {str(e)}")
+                                disconnected_users.append(other_user_id)
+                    
+                    # Clean up disconnected users
+                    for disconnected_user in disconnected_users:
+                        logger.info(f"Removing disconnected document user: {disconnected_user}")
+                        if disconnected_user in document_connections[document_key]:
+                            del document_connections[document_key][disconnected_user]
                 
                 elif message_type == "cursor_update":
                     cursor_data = message.get("data", {})
@@ -998,12 +1018,20 @@ async def document_websocket_endpoint(websocket: WebSocket, project_id: str, fil
                     }
                     
                     # Broadcast cursor position to other users
+                    disconnected_users = []
                     for other_user_id, conn in document_connections[document_key].items():
                         if other_user_id != user_id:
                             try:
                                 await conn.send_json(broadcast_message)
                             except Exception as e:
                                 logger.error(f"Error broadcasting cursor to {other_user_id}: {str(e)}")
+                                disconnected_users.append(other_user_id)
+                    
+                    # Clean up disconnected users
+                    for disconnected_user in disconnected_users:
+                        logger.info(f"Removing disconnected document user: {disconnected_user}")
+                        if disconnected_user in document_connections[document_key]:
+                            del document_connections[document_key][disconnected_user]
                 
                 else:
                     logger.warning(f"Unknown message type: {message_type}")
