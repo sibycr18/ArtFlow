@@ -86,10 +86,12 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
       if (operation.type === 'filter') {
         const remoteFilterType = operation.data.filterType;
         const remoteFilterValue = operation.data.filterValue;
+        const remoteAllFilterValues = operation.data.allFilterValues;
+        
         console.log('Received remote filter change:', remoteFilterType, 'value:', remoteFilterValue);
         
-        // Create a copy of the current filter values and update with the remote change
-        const newFilterValues = {...filterValues, [remoteFilterType]: remoteFilterValue};
+        // Use all filter values if provided, otherwise update just the single filter
+        const newFilterValues = remoteAllFilterValues || {...filterValues, [remoteFilterType]: remoteFilterValue};
         
         // Update the filter values in our state
         setFilterValues(newFilterValues);
@@ -664,12 +666,19 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
     // Apply all filters with the new values
     applyFilters(newFilterValues);
     
-    // Send filter type and value to server
-    sendFilterOperation(filterType, value);
-    console.log(`Sending filter update: ${filterType}=${value} via WebSocket`);
+    // Send filter change to server
+    sendFilterOperation(filterType, value, newFilterValues);
+    
+    // After applying filters, also send the resulting image data to ensure consistency
+    if (canvas) {
+      const filteredImageData = canvas.toDataURL('image/png');
+      sendCropOperation(filteredImageData, canvas.width, canvas.height);
+    }
+    
+    console.log(`Sending filter update: ${filterType}=${value} with all filters via WebSocket`);
   };
 
-  // Reset all filters - simplify to match our new approach
+  // Reset all filters
   const resetAllFilters = () => {
     // Create reset values (all zeros)
     const resetValues = Object.keys(filterValues).reduce((acc, key) => {
@@ -694,10 +703,15 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
     // Broadcast reset for each filter that was non-zero
     Object.keys(filterValues).forEach(filterType => {
       if (filterValues[filterType] > 0) {
-        sendFilterOperation(filterType, 0);
-        console.log(`Reset filter ${filterType} to 0, sent update via WebSocket`);
+        sendFilterOperation(filterType, 0, resetValues);
       }
     });
+    
+    // After applying filters, also send the resulting image data to ensure consistency
+    if (canvas) {
+      const filteredImageData = canvas.toDataURL('image/png');
+      sendCropOperation(filteredImageData, canvas.width, canvas.height);
+    }
     
     console.log('Reset all filters complete');
   };
