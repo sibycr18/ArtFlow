@@ -388,9 +388,21 @@ class ConnectionManager:
         for other_user_id, websocket in connections.items():
             if other_user_id != user_id:
                 # Add the send task to our list without awaiting
-                task = websocket.send_json(message)
-                send_tasks.append(task)
-                send_targets[task] = other_user_id
+                try:
+                    # Check if the connection is still open before attempting to send
+                    # This helps prevent the "websocket.send after websocket.close" error
+                    if websocket.client_state.CONNECTED:
+                        task = websocket.send_json(message)
+                        send_tasks.append(task)
+                        send_targets[task] = other_user_id
+                    else:
+                        # Connection is already closed, mark for removal
+                        self.logger.warning(f"Skipping closed connection for user {other_user_id}")
+                        disconnected_clients.append((project_id, file_id, other_user_id))
+                except Exception as e:
+                    # Any error in preparing to send should mark this client for removal
+                    self.logger.warning(f"Error preparing to send to user {other_user_id}: {str(e)}")
+                    disconnected_clients.append((project_id, file_id, other_user_id))
         
         # Now execute all sends concurrently with proper error handling
         if send_tasks:
@@ -842,18 +854,46 @@ class DocumentConnectionManager:
             
             # Create a list of send tasks
             send_tasks = []
+            send_targets = {}
+            disconnected_clients = []
             
             # Gather all send operations without awaiting them yet
             for other_user_id, websocket in connections.items():
                 if other_user_id != user_id:
-                    # Add the send task to our list without awaiting
-                    send_tasks.append(websocket.send_json(message))
+                    try:
+                        # Check if connection is still open
+                        if websocket.client_state.CONNECTED:
+                            # Add the send task to our list without awaiting
+                            task = websocket.send_json(message)
+                            send_tasks.append(task)
+                            send_targets[task] = other_user_id
+                        else:
+                            # Connection is already closed, mark for removal
+                            self.logger.warning(f"Skipping closed document connection for user {other_user_id}")
+                            disconnected_clients.append((project_id, file_id, other_user_id))
+                    except Exception as e:
+                        # Any error in preparing to send should mark this client for removal
+                        self.logger.warning(f"Error preparing to send to document user {other_user_id}: {str(e)}")
+                        disconnected_clients.append((project_id, file_id, other_user_id))
             
             # Now execute all sends concurrently
             if send_tasks:
                 # Use gather for maximum performance, with return_exceptions=True to prevent
                 # one failed send from affecting others
-                await asyncio.gather(*send_tasks, return_exceptions=True)
+                results = await asyncio.gather(*send_tasks, return_exceptions=True)
+                
+                # Process results to identify disconnected clients
+                for i, result in enumerate(results):
+                    if isinstance(result, Exception):
+                        task = send_tasks[i]
+                        failed_user_id = send_targets[task]
+                        self.logger.warning(f"Failed to send to document user {failed_user_id}: {str(result)}")
+                        disconnected_clients.append((project_id, file_id, failed_user_id))
+            
+            # Clean up disconnected clients
+            for p_id, f_id, failed_user_id in disconnected_clients:
+                self.logger.info(f"Removing disconnected document client: {failed_user_id}")
+                self.disconnect(p_id, f_id, failed_user_id)
 
     async def connect(self, websocket: WebSocket, project_id: str, file_id: str, user_id: str):
         await websocket.accept()
@@ -1002,7 +1042,12 @@ async def document_websocket_endpoint(websocket: WebSocket, project_id: str, fil
                         if other_user_id != user_id:  # Don't send back to originator
                             logger.debug(f"Broadcasting to user: {other_user_id}")
                             try:
-                                await conn.send_json(broadcast_message)
+                                # Check if connection is still open before sending
+                                if conn.client_state.CONNECTED:
+                                    await conn.send_json(broadcast_message)
+                                else:
+                                    logger.warning(f"Skipping closed connection for document update to {other_user_id}")
+                                    disconnected_users.append(other_user_id)
                             except Exception as e:
                                 logger.error(f"Error broadcasting to {other_user_id}: {str(e)}")
                                 disconnected_users.append(other_user_id)
@@ -1030,7 +1075,12 @@ async def document_websocket_endpoint(websocket: WebSocket, project_id: str, fil
                     for other_user_id, conn in document_connections[document_key].items():
                         if other_user_id != user_id:
                             try:
-                                await conn.send_json(broadcast_message)
+                                # Check if connection is still open before sending
+                                if conn.client_state.CONNECTED:
+                                    await conn.send_json(broadcast_message)
+                                else:
+                                    logger.warning(f"Skipping closed connection for cursor update to {other_user_id}")
+                                    disconnected_users.append(other_user_id)
                             except Exception as e:
                                 logger.error(f"Error broadcasting cursor to {other_user_id}: {str(e)}")
                                 disconnected_users.append(other_user_id)
@@ -1130,7 +1180,12 @@ async def image_websocket_endpoint(websocket: WebSocket, project_id: str, file_i
                         if other_user_id != user_id:  # Don't send back to originator
                             logger.debug(f"Broadcasting to user: {other_user_id}")
                             try:
-                                await conn.send_json(broadcast_message)
+                                # Check if connection is still open before sending
+                                if conn.client_state.CONNECTED:
+                                    await conn.send_json(broadcast_message)
+                                else:
+                                    logger.warning(f"Skipping closed connection for image update to {other_user_id}")
+                                    disconnected_users.append(other_user_id)
                             except Exception as e:
                                 logger.error(f"Error broadcasting to {other_user_id}: {str(e)}")
                                 disconnected_users.append(other_user_id)
