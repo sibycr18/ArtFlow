@@ -976,6 +976,11 @@ async def document_websocket_endpoint(websocket: WebSocket, project_id: str, fil
                         position = operation_data.get("position", -1)
                         length = operation_data.get("length", -1)
                         logger.info(f"Format operation: type={format_type}, value={format_value}, position={position}, length={length}, from user={operation_user}")
+                    elif operation_type == "crop":
+                        width = operation_data.get("width", 0)
+                        height = operation_data.get("height", 0)
+                        img_data_length = len(operation_data.get("imageData", ""))
+                        logger.info(f"Crop operation: dimensions={width}x{height}, data length={img_data_length}, from user={operation_user}")
                     else:
                         logger.info(f"Text operation: type={operation_type}, from user={operation_user}")
                     
@@ -1105,6 +1110,11 @@ async def image_websocket_endpoint(websocket: WebSocket, project_id: str, file_i
                     elif operation_type == "upload":
                         img_data_length = len(operation_data.get("imageData", ""))
                         logger.info(f"Image upload operation: data length={img_data_length}, from user={operation_user}")
+                    elif operation_type == "crop":
+                        width = operation_data.get("width", 0)
+                        height = operation_data.get("height", 0)
+                        img_data_length = len(operation_data.get("imageData", ""))
+                        logger.info(f"Crop operation: dimensions={width}x{height}, data length={img_data_length}, from user={operation_user}")
                     else:
                         logger.info(f"Image operation: type={operation_type}, from user={operation_user}")
                     
