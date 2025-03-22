@@ -9,6 +9,7 @@ export interface FilterOperation {
     timestamp: number;
     filterType: string;
     filterValue: number;
+    allFilterValues?: Record<string, number>; // Add all filter values
     // Add any other relevant filter properties
   };
 }
@@ -19,6 +20,17 @@ export interface ImageUploadOperation {
     userId: string;
     timestamp: number;
     imageData: string; // Base64 encoded image data
+  };
+}
+
+export interface CropOperation {
+  type: 'crop';
+  data: {
+    userId: string;
+    timestamp: number;
+    imageData: string; // Base64 encoded cropped image data
+    width: number;
+    height: number;
   };
 }
 
@@ -55,8 +67,9 @@ const logger = {
 interface ImageEditorContextType {
   isConnected: boolean;
   connectionError: string | null;
-  sendFilterOperation: (filterType: string, filterValue: number) => void;
+  sendFilterOperation: (filterType: string, filterValue: number, allFilterValues?: Record<string, number>) => void;
   sendImageUpload: (imageData: string) => void;
+  sendCropOperation: (imageData: string, width: number, height: number) => void;
   onRemoteImageOperation?: (operation: ImageEditOperation) => void;
   setOnRemoteImageOperation: (callback: (operation: ImageEditOperation) => void) => void;
   connect: () => void;
@@ -199,7 +212,7 @@ export const ImageEditorProvider: React.FC<ImageEditorProviderProps> = ({
     return cleanup;
   }, [projectId, fileId, userId]);
 
-  const sendFilterOperation = useCallback((filterType: string, filterValue: number) => {
+  const sendFilterOperation = useCallback((filterType: string, filterValue: number, allFilterValues?: Record<string, number>) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       logger.info(`Sending filter operation: ${filterType} with value: ${filterValue}`);
       wsRef.current.send(JSON.stringify({
@@ -210,6 +223,7 @@ export const ImageEditorProvider: React.FC<ImageEditorProviderProps> = ({
             userId,
             filterType,
             filterValue,
+            allFilterValues,
             timestamp: Date.now()
           }
         }
@@ -238,12 +252,34 @@ export const ImageEditorProvider: React.FC<ImageEditorProviderProps> = ({
     }
   }, [userId]);
 
+  const sendCropOperation = useCallback((imageData: string, width: number, height: number) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      logger.info(`Sending crop operation. Cropped image dimensions: ${width}x${height}`);
+      wsRef.current.send(JSON.stringify({
+        type: 'image_operation',
+        data: {
+          type: 'crop',
+          data: {
+            userId,
+            imageData,
+            width,
+            height,
+            timestamp: Date.now()
+          }
+        }
+      }));
+    } else {
+      logger.warn('WebSocket is not connected. Crop operation not sent.');
+    }
+  }, [userId]);
+
   return (
     <ImageEditorContext.Provider value={{
       isConnected,
       connectionError,
       sendFilterOperation,
       sendImageUpload,
+      sendCropOperation,
       onRemoteImageOperation: onRemoteImageOperationRef.current,
       setOnRemoteImageOperation,
       connect
