@@ -826,8 +826,8 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
                   <div className="mt-3">
                     <div className="grid grid-cols-2 gap-2">
                       {[
-                        { icon: RotateCcw, action: () => rotate('left'), label: 'Rotate Left' },
-                        { icon: RotateCw, action: () => rotate('right'), label: 'Rotate Right' },
+                        // { icon: RotateCcw, action: () => rotate('left'), label: 'Rotate Left' },
+                        // { icon: RotateCw, action: () => rotate('right'), label: 'Rotate Right' },
                         { icon: ZoomIn, action: () => zoom(0.1), label: 'Zoom In' },
                         { icon: ZoomOut, action: () => zoom(-0.1), label: 'Zoom Out' },
                         { icon: Crop, action: startCropping, label: 'Crop', active: isCropping }
