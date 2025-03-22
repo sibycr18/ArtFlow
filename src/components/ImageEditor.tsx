@@ -32,6 +32,7 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
     connectionError, 
     sendFilterOperation,
     sendImageUpload,
+    sendCropOperation,
     setOnRemoteImageOperation
   } = useImageEditor();
 
@@ -130,6 +131,42 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
           saveToHistory(imageData);
         };
         img.src = remoteImageData;
+      }
+      else if (operation.type === 'crop') {
+        console.log('Received remote crop operation');
+        
+        // Load the received cropped image
+        const remoteCroppedImageData = operation.data.imageData;
+        const remoteCropWidth = operation.data.width;
+        const remoteCropHeight = operation.data.height;
+        
+        const img = new Image();
+        img.onload = () => {
+          const canvas = canvasRef.current;
+          const ctx = canvas?.getContext('2d');
+          if (!canvas || !ctx) return;
+
+          // Resize the canvas to match the cropped image dimensions
+          canvas.width = remoteCropWidth;
+          canvas.height = remoteCropHeight;
+
+          // Clear canvas
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          // Draw the cropped image
+          ctx.drawImage(img, 0, 0);
+          
+          // Save as the new original image for filters and other operations
+          const newOriginalImg = new Image();
+          newOriginalImg.src = remoteCroppedImageData;
+          setOriginalImage(newOriginalImg);
+
+          // Save to history
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          saveToHistory(imageData);
+        };
+        img.src = remoteCroppedImageData;
       }
     });
   }, [setOnRemoteImageOperation]);
@@ -410,11 +447,23 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     saveToHistory(imageData);
 
+    // Update the original image reference to the cropped version
+    // This is crucial for filters to work correctly after cropping
+    const croppedImage = new Image();
+    const croppedImageDataUrl = canvas.toDataURL('image/png');
+    croppedImage.src = croppedImageDataUrl;
+    setOriginalImage(croppedImage);
+
     // Reset cropping state
     setIsCropping(false);
     setIsDrawingCrop(false);
     setCropStartPoint(null);
     setCurrentPoint(null);
+    
+    // Broadcast the cropped image to other users
+    if (sendCropOperation) {
+      sendCropOperation(croppedImageDataUrl, cropWidth, cropHeight);
+    }
   };
 
   const cancelCrop = () => {

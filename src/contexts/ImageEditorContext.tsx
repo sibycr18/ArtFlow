@@ -22,6 +22,17 @@ export interface ImageUploadOperation {
   };
 }
 
+export interface CropOperation {
+  type: 'crop';
+  data: {
+    userId: string;
+    timestamp: number;
+    imageData: string; // Base64 encoded cropped image data
+    width: number;
+    height: number;
+  };
+}
+
 export interface ImageEditOperation {
   type: 'filter' | 'rotate' | 'crop' | 'clear' | 'upload';
   data: any; // Will be specific to the operation type
@@ -57,6 +68,7 @@ interface ImageEditorContextType {
   connectionError: string | null;
   sendFilterOperation: (filterType: string, filterValue: number) => void;
   sendImageUpload: (imageData: string) => void;
+  sendCropOperation: (imageData: string, width: number, height: number) => void;
   onRemoteImageOperation?: (operation: ImageEditOperation) => void;
   setOnRemoteImageOperation: (callback: (operation: ImageEditOperation) => void) => void;
   connect: () => void;
@@ -238,12 +250,34 @@ export const ImageEditorProvider: React.FC<ImageEditorProviderProps> = ({
     }
   }, [userId]);
 
+  const sendCropOperation = useCallback((imageData: string, width: number, height: number) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      logger.info(`Sending crop operation. Cropped image dimensions: ${width}x${height}`);
+      wsRef.current.send(JSON.stringify({
+        type: 'image_operation',
+        data: {
+          type: 'crop',
+          data: {
+            userId,
+            imageData,
+            width,
+            height,
+            timestamp: Date.now()
+          }
+        }
+      }));
+    } else {
+      logger.warn('WebSocket is not connected. Crop operation not sent.');
+    }
+  }, [userId]);
+
   return (
     <ImageEditorContext.Provider value={{
       isConnected,
       connectionError,
       sendFilterOperation,
       sendImageUpload,
+      sendCropOperation,
       onRemoteImageOperation: onRemoteImageOperationRef.current,
       setOnRemoteImageOperation,
       connect
