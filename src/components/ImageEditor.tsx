@@ -923,8 +923,33 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
                         const canvas = canvasRef.current;
                         const ctx = canvas?.getContext('2d');
                         if (!canvas || !ctx) return;
-                        ctx.clearRect(0, 0, canvas.width, canvas.height);
-                        saveToHistory(ctx.getImageData(0, 0, canvas.width, canvas.height));
+                        
+                        // Clear the canvas with white background
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        
+                        // Create a new blank image to replace the original image
+                        const blankImage = new Image();
+                        blankImage.width = canvas.width;
+                        blankImage.height = canvas.height;
+                        setOriginalImage(blankImage);
+                        
+                        // Reset all filter values
+                        const resetValues = Object.keys(filterValues).reduce((acc, key) => {
+                          acc[key] = 0;
+                          return acc;
+                        }, {} as Record<string, number>);
+                        setFilterValues(resetValues);
+                        
+                        // Save to history
+                        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                        saveToHistory(imageData);
+                        
+                        // Broadcast the cleared canvas to other users
+                        if (sendCropOperation) {
+                          const clearedImageData = canvas.toDataURL('image/png');
+                          sendCropOperation(clearedImageData, canvas.width, canvas.height);
+                        }
                       }}
                       className="w-full px-4 py-2 bg-red-50 hover:bg-red-100 rounded-lg text-red-600 font-medium flex items-center justify-center gap-2"
                     >
