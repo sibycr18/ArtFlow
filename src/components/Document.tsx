@@ -440,11 +440,13 @@ const Document: React.FC<DocumentProps> = ({
   
   // Download handler
   const handleDownload = () => {
-    const blob = new Blob([editorRef.current?.innerHTML || ''], { type: 'text/html' });
+    // Get plain text content instead of HTML
+    const textContent = editorRef.current?.innerText || '';
+    const blob = new Blob([textContent], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'document.html';
+    a.download = `${fileName.replace(/\.[^/.]+$/, '') || 'document'}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   };
