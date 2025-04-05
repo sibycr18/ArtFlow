@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState, useCallb
 import { DrawingData, WebSocketMessage } from '../types/canvas';
 import throttle from 'lodash/throttle';
 import { WS_URL } from '../config';
+import supabase from '../utils/supabaseClient';
 
 // Custom logger
 const logger = {
@@ -37,6 +38,8 @@ interface CanvasContextType {
   setOnRemoteDraw: (callback: (data: DrawingData) => void) => void;
   setOnRemoteClear: (callback: () => void) => void;
   connect: () => void;
+  loadDrawingHistory: (fileId: string) => Promise<void>;
+  isHistoryLoading: boolean;
 }
 
 const CanvasContext = createContext<CanvasContextType | null>(null);
@@ -64,12 +67,14 @@ export const CanvasProvider: React.FC<CanvasProviderProps> = ({
 }) => {
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttempts = useRef(0);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const onRemoteDrawRef = useRef<((data: DrawingData) => void) | undefined>();
   const onRemoteClearRef = useRef<(() => void) | undefined>();
   const isCleaningUpRef = useRef(false);
+  const isHistoryLoadedRef = useRef(false);
 
   const setOnRemoteDraw = useCallback((callback: (data: DrawingData) => void) => {
     onRemoteDrawRef.current = callback;
@@ -245,6 +250,122 @@ export const CanvasProvider: React.FC<CanvasProviderProps> = ({
     }
   }, [projectId, fileId, userId]);
 
+  const loadDrawingHistory = async (fileId: string) => {
+    if (!fileId || isHistoryLoading || isHistoryLoadedRef.current) return;
+    
+    logger.info('=== HISTORY LOADING START ===');
+    logger.info(`Loading drawing history for fileId: ${fileId}, historyLoading: ${isHistoryLoading}, historyLoaded: ${isHistoryLoadedRef.current}`);
+    
+    setIsHistoryLoading(true);
+    try {
+      logger.info('Making Supabase request for drawing history...');
+      
+      // Fetch drawing history from Supabase
+      const { data, error } = await supabase
+        .from('drawing_history')
+        .select('*')
+        .eq('file_id', fileId)
+        .order('sequence_number', { ascending: true });
+      
+      if (error) {
+        logger.error('Supabase error loading drawing history:', error);
+        throw error;
+      }
+      
+      logger.info(`Supabase returned ${data?.length || 0} history entries`);
+      
+      if (!data || data.length === 0) {
+        logger.info('No drawing history found for file');
+        setIsHistoryLoading(false);
+        isHistoryLoadedRef.current = true;
+        return;
+      }
+      
+      logger.info(`Loaded ${data.length} drawing history entries. Starting to apply them...`);
+      logger.info(`First entry: ${JSON.stringify(data[0])}`);
+      logger.info(`onRemoteDrawRef exists: ${!!onRemoteDrawRef.current}`);
+      logger.info(`onRemoteClearRef exists: ${!!onRemoteClearRef.current}`);
+      
+      // Process each drawing operation in sequence with a small delay
+      // to ensure proper rendering, especially for complex drawings
+      const applyDrawingOperations = async () => {
+        logger.info('Starting sequential application of drawing operations');
+        let appliedCount = 0;
+        
+        for (const entry of data) {
+          try {
+            // Handle the case where drawing_data might be stored as a JSON string
+            let drawingData;
+            if (entry.drawing_data) {
+              if (typeof entry.drawing_data === 'string') {
+                logger.info('Drawing data is stored as string, parsing JSON');
+                try {
+                  drawingData = JSON.parse(entry.drawing_data);
+                } catch (parseError) {
+                  logger.error('Failed to parse drawing_data JSON string:', parseError);
+                  continue;
+                }
+              } else {
+                drawingData = entry.drawing_data;
+              }
+              
+              logger.info(`Processing entry ${appliedCount + 1}/${data.length}, type: ${drawingData.type}`);
+              logger.info('Drawing data details:', JSON.stringify(drawingData));
+              
+              // Handle clear canvas operation
+              if (drawingData.type === 'clear') {
+                logger.info('Applying clear canvas operation');
+                if (onRemoteClearRef.current) {
+                  onRemoteClearRef.current();
+                } else {
+                  logger.error('Cannot clear canvas: onRemoteClearRef.current is undefined');
+                }
+                // Add small delay after clear operation
+                await new Promise(resolve => setTimeout(resolve, 10));
+              } else {
+                // Handle drawing operations
+                logger.info(`Applying drawing operation of type: ${drawingData.type}`);
+                if (onRemoteDrawRef.current) {
+                  onRemoteDrawRef.current(drawingData);
+                } else {
+                  logger.error('Cannot draw: onRemoteDrawRef.current is undefined');
+                }
+                
+                // For brush strokes, add a tiny delay to ensure proper stroke rendering
+                if (drawingData.type === 'brush' || drawingData.type === 'eraser') {
+                  // Smaller delay for continuous strokes
+                  await new Promise(resolve => setTimeout(resolve, 5));
+                } else {
+                  // Slightly longer delay for shapes
+                  await new Promise(resolve => setTimeout(resolve, 10));
+                }
+              }
+              appliedCount++;
+            } else {
+              logger.warn('Entry has no drawing_data:', entry);
+            }
+          } catch (operationError) {
+            logger.error('Error processing drawing operation:', operationError);
+            logger.error('Problematic entry:', entry);
+          }
+        }
+        
+        logger.info(`Applied ${appliedCount}/${data.length} drawing operations`);
+        isHistoryLoadedRef.current = true;
+        setIsHistoryLoading(false);
+        logger.info('=== HISTORY LOADING COMPLETE ===');
+      };
+      
+      // Start the sequential application process
+      applyDrawingOperations();
+      
+    } catch (error) {
+      logger.error('Error in loadDrawingHistory:', error);
+      logger.error('Full error details:', error);
+      setIsHistoryLoading(false);
+    }
+  };
+
   return (
     <CanvasContext.Provider value={{
       isConnected,
@@ -253,7 +374,9 @@ export const CanvasProvider: React.FC<CanvasProviderProps> = ({
       sendClearCanvas,
       setOnRemoteDraw,
       setOnRemoteClear,
-      connect
+      connect,
+      loadDrawingHistory,
+      isHistoryLoading
     }}>
       {children}
     </CanvasContext.Provider>

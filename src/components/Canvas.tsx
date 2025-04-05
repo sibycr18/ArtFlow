@@ -14,6 +14,7 @@ interface CanvasProps {
   width?: number;
   height?: number;
   onClose?: () => void;
+  fileId: string;
 }
 
 const CANVAS_WIDTH = 1920;
@@ -27,7 +28,7 @@ const defaultStrokeStyle: StrokeStyle = {
   globalCompositeOperation: 'source-over'
 };
 
-const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
+const Canvas: React.FC<CanvasProps> = ({ onClose, fileId }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const baseCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -42,8 +43,19 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
   const [displayScale, setDisplayScale] = useState(1);
   const [history, setHistory] = useState<string[]>([]);
   const [currentStep, setCurrentStep] = useState(-1);
+  const [canvasReady, setCanvasReady] = useState(false);
 
-  const { sendDrawData, sendClearCanvas, isConnected, setOnRemoteDraw, setOnRemoteClear, connectionError, connect } = useCanvas();
+  const { 
+    sendDrawData, 
+    sendClearCanvas, 
+    isConnected, 
+    setOnRemoteDraw, 
+    setOnRemoteClear, 
+    connectionError, 
+    connect,
+    loadDrawingHistory,
+    isHistoryLoading
+  } = useCanvas();
 
   const lastMousePos = useRef<{ x: number, y: number } | null>(null);
 
@@ -78,6 +90,7 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
       return;
     }
 
+    console.log('=== CANVAS INITIALIZATION START ===');
     console.log('Initializing canvas with fixed dimensions:', { width: CANVAS_WIDTH, height: CANVAS_HEIGHT });
     canvas.width = CANVAS_WIDTH;
     canvas.height = CANVAS_HEIGHT;
@@ -94,10 +107,10 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
 
     // Initialize base canvas with fixed dimensions
     if (baseCanvasRef.current === null) {
-    const baseCanvas = document.createElement('canvas');
+      const baseCanvas = document.createElement('canvas');
       baseCanvas.width = CANVAS_WIDTH;
       baseCanvas.height = CANVAS_HEIGHT;
-    baseCanvasRef.current = baseCanvas;
+      baseCanvasRef.current = baseCanvas;
     } else {
       baseCanvasRef.current.width = CANVAS_WIDTH;
       baseCanvasRef.current.height = CANVAS_HEIGHT;
@@ -107,27 +120,55 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
     const initialState = canvas.toDataURL();
     setHistory([initialState]);
     setCurrentStep(0);
-    console.log('Canvas initialization complete');
+    setCanvasReady(true);
+    console.log('=== CANVAS INITIALIZATION COMPLETE ===');
   }, []);
 
-  // Set up remote drawing handlers
+  // Set up remote drawing handlers and load history
   useEffect(() => {
+    console.log(`[CanvasStatus] canvasReady: ${canvasReady}, isConnected: ${isConnected}, fileId: ${fileId}`);
+    
+    if (!canvasReady) {
+      console.log('[CanvasStatus] Canvas not ready yet, waiting for initialization');
+      return;
+    }
+    
+    if (!isConnected) {
+      console.log('[CanvasStatus] Not connected yet, waiting for connection');
+      return;
+    }
+    
+    if (!fileId) {
+      console.error('[CanvasStatus] No fileId provided, cannot load drawing history');
+      return;
+    }
+    
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) {
+      console.error('Canvas ref is null in remote drawing handler setup');
+      return;
+    }
+
+    console.log(`[RemoteHandlers] Setting up handlers for fileId: ${fileId}`);
 
     let currentPath: { x: number; y: number; } | null = null;
 
     const handleRemoteDraw = (message: any) => {
-      console.log('Received remote draw data:', message);
+      console.log('[RemoteHandlers] handleRemoteDraw called with data:', message);
 
       const ctx = canvas.getContext('2d');
       if (!ctx) {
-        console.error('Failed to get canvas context for remote drawing');
+        console.error('[RemoteHandlers] Failed to get canvas context for remote drawing');
         return;
       }
 
       // Extract the actual drawing data from the message
       const data = message.data || message;
+
+      console.log(`[RemoteHandlers] Processing ${data.type} operation with:`, 
+        data.type === 'brush' || data.type === 'eraser' 
+          ? `x: ${data.x}, y: ${data.y}, isStartPoint: ${data.isStartPoint}` 
+          : 'shape data');
 
       // Set up context properties
       ctx.strokeStyle = data.color;
@@ -137,39 +178,45 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
 
       if (data.type === 'eraser') {
         ctx.globalCompositeOperation = 'destination-out';
+        console.log('[RemoteHandlers] Set eraser mode: destination-out');
       } else {
         ctx.globalCompositeOperation = 'source-over';
+        console.log('[RemoteHandlers] Set normal draw mode: source-over');
       }
 
       switch (data.type) {
         case 'brush':
         case 'eraser':
+          console.log(`[RemoteHandlers] Drawing ${data.type} at x: ${data.x}, y: ${data.y}, isStartPoint: ${data.isStartPoint}`);
           if (data.isStartPoint) {
-            console.log('Starting new remote stroke at:', { x: data.x, y: data.y });
+            console.log('[RemoteHandlers] Starting new remote stroke at:', { x: data.x, y: data.y });
             currentPath = { x: data.x, y: data.y };
             ctx.beginPath();
             ctx.moveTo(data.x, data.y);
           } else if (currentPath) {
+            console.log('[RemoteHandlers] Continuing stroke from:', currentPath, 'to:', { x: data.x, y: data.y });
             ctx.beginPath();
             ctx.moveTo(currentPath.x, currentPath.y);
             ctx.lineTo(data.x, data.y);
             ctx.stroke();
             currentPath = { x: data.x, y: data.y };
+          } else {
+            console.warn('[RemoteHandlers] Received non-start point without current path');
           }
           break;
         case 'rectangle':
-          console.log('Drawing remote rectangle:', data);
+          console.log('[RemoteHandlers] Drawing remote rectangle:', data);
           ctx.beginPath();
           ctx.strokeRect(data.startX, data.startY, data.width, data.height);
           break;
         case 'circle':
-          console.log('Drawing remote circle:', data);
+          console.log('[RemoteHandlers] Drawing remote circle:', data);
           ctx.beginPath();
           ctx.arc(data.centerX, data.centerY, data.radius, 0, Math.PI * 2);
           ctx.stroke();
           break;
         case 'triangle':
-          console.log('Drawing remote triangle:', data);
+          console.log('[RemoteHandlers] Drawing remote triangle:', data);
           const angle = Math.PI / 3;
           const leftX = data.startX - data.size * Math.cos(angle);
           const leftY = data.startY + data.size * Math.sin(angle);
@@ -183,30 +230,52 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
           ctx.closePath();
           ctx.stroke();
           break;
+        default:
+          console.warn('[RemoteHandlers] Unknown drawing type:', data.type);
       }
 
       if (data.type === 'eraser') {
         ctx.globalCompositeOperation = 'source-over';
+        console.log('[RemoteHandlers] Reset to normal draw mode after eraser');
       }
 
       // Save state after complete shapes, but not for brush/eraser strokes
       if (data.type !== 'brush' && data.type !== 'eraser') {
+        console.log('[RemoteHandlers] Saving state after shape drawing');
         saveState();
       }
     };
 
     const handleRemoteClear = () => {
-      console.log('Received remote clear command');
+      console.log('[RemoteHandlers] Clearing canvas remotely');
       const ctx = canvas.getContext('2d');
-      if (!ctx) return;
+      if (!ctx) {
+        console.error('[RemoteHandlers] Failed to get canvas context for clear operation');
+        return;
+      }
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      console.log('[RemoteHandlers] Canvas cleared and filled with white');
       saveState();
     };
 
+    console.log('[RemoteHandlers] Setting remote draw handler');
     setOnRemoteDraw(handleRemoteDraw);
+    console.log('[RemoteHandlers] Setting remote clear handler');
     setOnRemoteClear(handleRemoteClear);
-  }, []);
+    
+    // Load drawing history after handlers are set up
+    if (isConnected && fileId) {
+      console.log(`[RemoteHandlers] Connected and have fileId (${fileId}), loading drawing history...`);
+      loadDrawingHistory(fileId);
+    } else {
+      console.warn(`[RemoteHandlers] Not loading history: connected=${isConnected}, fileId=${fileId}`);
+    }
+    
+    return () => {
+      console.log('[RemoteHandlers] Cleaning up remote drawing handlers');
+    };
+  }, [isConnected, fileId, loadDrawingHistory, canvasReady]);
 
   const saveState = () => {
     if (!isDrawing) {  // Only save when drawing is finished
@@ -850,6 +919,16 @@ const Canvas: React.FC<CanvasProps> = ({ onClose }) => {
           </div>
         </div>
       </div>
+
+      {/* Loading overlay */}
+      {isHistoryLoading && (
+        <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="flex flex-col items-center gap-4">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+            <p className="text-gray-600">Loading drawing history...</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
