@@ -4,7 +4,7 @@ import {
   ChevronDown, Download, Trash2, 
   Bold, Italic, Underline, 
   AlignLeft, AlignCenter, AlignRight, AlignJustify,
-  ArrowLeft, Undo, Redo
+  ArrowLeft, Undo, Redo, Save
 } from 'lucide-react';
 import ColorPicker from './ColorPicker';
 import { useCanvas } from '../contexts/CanvasContext';
@@ -15,6 +15,7 @@ interface CanvasProps {
   height?: number;
   onClose?: () => void;
   fileId: string;
+  fileName?: string;
 }
 
 const CANVAS_WIDTH = 1920;
@@ -28,7 +29,7 @@ const defaultStrokeStyle: StrokeStyle = {
   globalCompositeOperation: 'source-over'
 };
 
-const Canvas: React.FC<CanvasProps> = ({ onClose, fileId }) => {
+const Canvas: React.FC<CanvasProps> = ({ onClose, fileId, fileName = "Untitled Canvas" }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const baseCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -44,6 +45,7 @@ const Canvas: React.FC<CanvasProps> = ({ onClose, fileId }) => {
   const [history, setHistory] = useState<string[]>([]);
   const [currentStep, setCurrentStep] = useState(-1);
   const [canvasReady, setCanvasReady] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   const { 
     sendDrawData, 
@@ -54,7 +56,9 @@ const Canvas: React.FC<CanvasProps> = ({ onClose, fileId }) => {
     connectionError, 
     connect,
     loadDrawingHistory,
-    isHistoryLoading
+    isHistoryLoading,
+    saveCanvasToDatabase: saveToDatabase,
+    isSaving
   } = useCanvas();
 
   const lastMousePos = useRef<{ x: number, y: number } | null>(null);
@@ -156,14 +160,42 @@ const Canvas: React.FC<CanvasProps> = ({ onClose, fileId }) => {
     const handleRemoteDraw = (message: any) => {
       console.log('[RemoteHandlers] handleRemoteDraw called with data:', message);
 
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d');
+      if (!ctx || !canvas) {
         console.error('[RemoteHandlers] Failed to get canvas context for remote drawing');
         return;
       }
 
       // Extract the actual drawing data from the message
       const data = message.data || message;
+
+      // Special handling for canvas_snapshot type
+      if (data.type === 'canvas_snapshot') {
+        console.log('[RemoteHandlers] Loading canvas snapshot');
+        
+        // Create a new image from the image data
+        const img = new Image();
+        img.onload = () => {
+          // Clear the canvas first
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+          
+          // Draw the image on the canvas
+          ctx.drawImage(img, 0, 0);
+          
+          // Save to history
+          saveState();
+          console.log('[RemoteHandlers] Canvas snapshot loaded successfully');
+        };
+        
+        img.onerror = (error) => {
+          console.error('[RemoteHandlers] Error loading canvas snapshot:', error);
+        };
+        
+        img.src = data.imageData;
+        return;
+      }
 
       console.log(`[RemoteHandlers] Processing ${data.type} operation with:`, 
         data.type === 'brush' || data.type === 'eraser' 
@@ -666,6 +698,65 @@ const Canvas: React.FC<CanvasProps> = ({ onClose, fileId }) => {
     }
   }, [isDrawing]);
 
+  const saveCanvasToDatabase = () => {
+    console.log('[Canvas] Saving canvas to database...');
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      console.error('[Canvas] Cannot save: Canvas ref is null');
+      return;
+    }
+    
+    try {
+      // Get canvas data as base64 image
+      const imageData = canvas.toDataURL('image/png');
+      
+      // Save to database
+      saveToDatabase(imageData)
+        .then((success) => {
+          if (success) {
+            // Show success message inline
+            setSaveStatus('success');
+            setTimeout(() => setSaveStatus('idle'), 3000); // Reset after 3 seconds
+          } else {
+            // Show error message inline
+            setSaveStatus('error');
+            setTimeout(() => setSaveStatus('idle'), 3000); // Reset after 3 seconds
+          }
+        })
+        .catch((error) => {
+          console.error('[Canvas] Error saving canvas:', error);
+          setSaveStatus('error');
+          setTimeout(() => setSaveStatus('idle'), 3000); // Reset after 3 seconds
+        });
+    } catch (error) {
+      console.error('[Canvas] Error generating canvas data:', error);
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus('idle'), 3000); // Reset after 3 seconds
+    }
+  };
+
+  const handleDownload = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    try {
+      // Create a temporary link element
+      const link = document.createElement('a');
+      
+      // Set download attributes
+      link.download = `canvas-${new Date().toISOString().slice(0, 10)}.png`;
+      link.href = canvas.toDataURL('image/png');
+      
+      // Trigger download
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (error) {
+      console.error('[Canvas] Error downloading canvas:', error);
+      alert('Failed to download canvas. Please try again.');
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-gradient-to-br from-purple-50 to-blue-50 overflow-hidden">
       <div className="h-screen w-full max-w-[1920px] mx-auto flex flex-col">
@@ -680,7 +771,7 @@ const Canvas: React.FC<CanvasProps> = ({ onClose, fileId }) => {
             </button>
             <div>
               <h1 className="text-xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
-                Canvas
+                {fileName}
               </h1>
               <p className="text-sm text-gray-600">
                 {connectionError ? (
@@ -688,12 +779,51 @@ const Canvas: React.FC<CanvasProps> = ({ onClose, fileId }) => {
                     Error: {connectionError}
                   </span>
                 ) : (
-                  <span className={isConnected ? "text-green-500" : "text-yellow-500"}>
-                    {isConnected ? "Connected" : "Connecting..."}
+                  <span>
+                    Canvas <span className="mx-1">•</span> 
+                    <span className={isConnected ? "text-green-500" : "text-yellow-500"}>
+                      {isConnected ? "Connected" : "Connecting..."}
+                    </span>
                   </span>
                 )}
               </p>
             </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <button
+              onClick={saveCanvasToDatabase}
+              className={`px-4 py-2 rounded-lg text-white flex items-center gap-2 transition-colors ${
+                saveStatus === 'success' 
+                  ? 'bg-green-500 hover:bg-green-600' 
+                  : saveStatus === 'error'
+                    ? 'bg-red-500 hover:bg-red-600'
+                    : 'bg-green-600 hover:bg-green-700'
+              }`}
+              disabled={!isConnected || isSaving}
+            >
+              {isSaving ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Saving...
+                </>
+              ) : saveStatus === 'success' ? (
+                <>
+                  <div className="w-4 h-4 text-white">✓</div>
+                  Saved!
+                </>
+              ) : saveStatus === 'error' ? (
+                <>
+                  <div className="w-4 h-4 text-white">✗</div>
+                  Failed to save
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  Save
+                </>
+              )}
+            </button>
           </div>
         </div>
 

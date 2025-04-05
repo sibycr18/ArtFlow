@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { WS_URL } from '../config';
+import supabase from '../utils/supabaseClient';
 
 // Define types for document operations
 export interface TextOperation {
@@ -59,6 +60,10 @@ interface DocumentContextType {
   onRemoteCursorUpdate?: (userId: string, position: number) => void;
   setOnRemoteCursorUpdate: (callback: (userId: string, position: number) => void) => void;
   connect: () => void;
+  saveDocumentToDatabase: (content: string) => Promise<boolean>;
+  loadDocumentContent: (fileId: string) => Promise<string | null>;
+  isSaving: boolean;
+  isLoading: boolean;
 }
 
 const DocumentContext = createContext<DocumentContextType | null>(null);
@@ -86,12 +91,15 @@ export const DocumentProvider: React.FC<DocumentProviderProps> = ({
 }) => {
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttempts = useRef(0);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const onRemoteTextOperationRef = useRef<((operation: TextOperation) => void) | undefined>();
   const onRemoteCursorUpdateRef = useRef<((userId: string, position: number) => void) | undefined>();
   const isCleaningUpRef = useRef(false);
+  const isContentLoadedRef = useRef(false);
 
   const setOnRemoteTextOperation = useCallback((callback: (operation: TextOperation) => void) => {
     onRemoteTextOperationRef.current = callback;
@@ -329,6 +337,177 @@ export const DocumentProvider: React.FC<DocumentProviderProps> = ({
     }
   }, [userId]);
 
+  // Save document to database function
+  const saveDocumentToDatabase = async (htmlContent: string): Promise<boolean> => {
+    if (!fileId || !projectId || !userId || !isConnected) {
+      logger.error('Cannot save: Missing required data or not connected');
+      return false;
+    }
+    
+    setIsSaving(true);
+    try {
+      logger.info('=== SAVE DOCUMENT START ===');
+      logger.info(`Saving document to files table for fileId: ${fileId}`);
+      
+      const timestamp = Date.now();
+      
+      // First, get the current file data to verify it exists
+      const { data: fileData, error: fetchError } = await supabase
+        .from('files')
+        .select('id, name')
+        .eq('id', fileId)
+        .single();
+        
+      if (fetchError) {
+        logger.error('Error fetching file data before update:', fetchError);
+        return false;
+      }
+      
+      if (!fileData) {
+        logger.error(`File with ID ${fileId} not found!`);
+        return false;
+      }
+      
+      logger.info(`Found file: ${fileData.name} (${fileData.id})`);
+      
+      // Check content size for logging
+      const contentSize = htmlContent ? Math.round(htmlContent.length / 1024) : 'unknown';
+      logger.info(`Document content size: ~${contentSize}KB`);
+      
+      // Create the content object with a unique trace ID
+      const traceId = `trace-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      const contentObject = {
+        type: 'document',
+        htmlContent: htmlContent,
+        timestamp: timestamp,
+        lastModifiedBy: userId,
+        traceId: traceId
+      };
+      
+      logger.info(`Generated trace ID for tracking: ${traceId}`);
+      
+      // Try standard ORM update
+      try {
+        logger.info('Saving document content...');
+        const { data: updateData, error: updateError } = await supabase
+          .from('files')
+          .update({
+            content: contentObject,
+            last_modified: new Date().toISOString()
+          })
+          .eq('id', fileId)
+          .select();
+          
+        if (!updateError) {
+          logger.info('Document save successful!');
+          logger.info('Update result:', updateData);
+          
+          // Verify the update
+          setTimeout(async () => {
+            const { data: verifyData, error: verifyError } = await supabase
+              .from('files')
+              .select('content')
+              .eq('id', fileId)
+              .single();
+              
+            if (verifyError) {
+              logger.error('Error verifying document update:', verifyError);
+            } else if (!verifyData || !verifyData.content) {
+              logger.error('Verification failed: No content found after update!');
+            } else {
+              logger.info('Verification succeeded: Document content is in database');
+            }
+          }, 500);
+          
+          logger.info('=== SAVE DOCUMENT COMPLETE ===');
+          return true;
+        }
+        
+        logger.warn('Standard update failed:', updateError);
+        
+        // Try without last_modified if that column doesn't exist
+        if (updateError.message?.includes('column "last_modified" does not exist')) {
+          logger.info('Trying without last_modified column...');
+          
+          const { data: retryData, error: retryError } = await supabase
+            .from('files')
+            .update({
+              content: contentObject
+            })
+            .eq('id', fileId)
+            .select();
+            
+          if (!retryError) {
+            logger.info('Update without last_modified successful!');
+            logger.info('=== SAVE DOCUMENT COMPLETE ===');
+            return true;
+          }
+          
+          logger.warn('Update without last_modified failed:', retryError);
+        }
+        
+        // If we get here, standard approach failed
+        logger.error('Failed to save document content');
+        return false;
+      } catch (error) {
+        logger.error('Error saving document to database:', error);
+        return false;
+      }
+    } catch (error) {
+      logger.error('Error in saveDocumentToDatabase:', error);
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Load document content from database
+  const loadDocumentContent = async (fileId: string): Promise<string | null> => {
+    if (!fileId || isLoading || isContentLoadedRef.current) return null;
+    
+    setIsLoading(true);
+    try {
+      logger.info('=== DOCUMENT LOADING START ===');
+      logger.info(`Loading document content for fileId: ${fileId}`);
+      
+      // Fetch file content from database
+      const { data, error } = await supabase
+        .from('files')
+        .select('content, name')
+        .eq('id', fileId)
+        .single();
+      
+      if (error) {
+        logger.error('Error loading document content:', error);
+        return null;
+      }
+      
+      if (!data || !data.content) {
+        logger.info(`No content found for file: ${fileId}`);
+        setIsLoading(false);
+        isContentLoadedRef.current = true;
+        return null;
+      }
+      
+      logger.info(`Found document content for file: ${data.name}`);
+      
+      // Check if it's a document type content
+      if (data.content.type === 'document' && data.content.htmlContent) {
+        logger.info('Successfully loaded document content');
+        isContentLoadedRef.current = true;
+        return data.content.htmlContent;
+      } else {
+        logger.warn('Content exists but is not document type or has no HTML content');
+        return null;
+      }
+    } catch (error) {
+      logger.error('Error in loadDocumentContent:', error);
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <DocumentContext.Provider value={{
       isConnected,
@@ -337,7 +516,11 @@ export const DocumentProvider: React.FC<DocumentProviderProps> = ({
       sendCursorUpdate,
       setOnRemoteTextOperation,
       setOnRemoteCursorUpdate,
-      connect
+      connect,
+      saveDocumentToDatabase,
+      loadDocumentContent,
+      isSaving,
+      isLoading
     }}>
       {children}
     </DocumentContext.Provider>

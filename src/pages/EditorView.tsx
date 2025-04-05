@@ -72,7 +72,7 @@ export default function EditorView() {
             fileId={fileId!}
             userId={user?.sub || 'anonymous'}
           >
-            <Canvas fileId={fileId!} onClose={handleClose} />
+            <Canvas fileId={fileId!} fileName={file.name} onClose={handleClose} />
           </CanvasProvider>
         );
       case 'document':
