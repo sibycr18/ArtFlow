@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { WS_URL } from '../config';
+import supabase from '../utils/supabaseClient';
 
 // Define types for image edit operations
 export interface FilterOperation {
@@ -73,6 +74,10 @@ interface ImageEditorContextType {
   onRemoteImageOperation?: (operation: ImageEditOperation) => void;
   setOnRemoteImageOperation: (callback: (operation: ImageEditOperation) => void) => void;
   connect: () => void;
+  saveImageToDatabase: (imageData: string, width: number, height: number, filterValues?: Record<string, number>) => Promise<boolean>;
+  loadImageFromDatabase: (fileId: string) => Promise<{imageData: string, width: number, height: number, filterValues?: Record<string, number>} | null>;
+  isSaving: boolean;
+  isLoading: boolean;
 }
 
 const ImageEditorContext = createContext<ImageEditorContextType | null>(null);
@@ -100,11 +105,14 @@ export const ImageEditorProvider: React.FC<ImageEditorProviderProps> = ({
 }) => {
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttempts = useRef(0);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const onRemoteImageOperationRef = useRef<((operation: ImageEditOperation) => void) | undefined>();
   const isCleaningUpRef = useRef(false);
+  const isContentLoadedRef = useRef(false);
 
   const setOnRemoteImageOperation = useCallback((callback: (operation: ImageEditOperation) => void) => {
     onRemoteImageOperationRef.current = callback;
@@ -273,6 +281,203 @@ export const ImageEditorProvider: React.FC<ImageEditorProviderProps> = ({
     }
   }, [userId]);
 
+  // Save image to database
+  const saveImageToDatabase = async (
+    imageData: string,
+    width: number,
+    height: number,
+    filterValues?: Record<string, number>
+  ): Promise<boolean> => {
+    if (!fileId || !projectId || !userId || !isConnected) {
+      logger.error('Cannot save: Missing required data or not connected');
+      return false;
+    }
+    
+    setIsSaving(true);
+    try {
+      logger.info('=== SAVE IMAGE START ===');
+      logger.info(`Saving image to files table for fileId: ${fileId}`);
+      
+      const timestamp = Date.now();
+      
+      // First, get the current file data to verify it exists
+      const { data: fileData, error: fetchError } = await supabase
+        .from('files')
+        .select('id, name')
+        .eq('id', fileId)
+        .single();
+        
+      if (fetchError) {
+        logger.error('Error fetching file data before update:', fetchError);
+        return false;
+      }
+      
+      if (!fileData) {
+        logger.error(`File with ID ${fileId} not found!`);
+        return false;
+      }
+      
+      logger.info(`Found file: ${fileData.name} (${fileData.id})`);
+      
+      // Check image data size for logging
+      const dataSize = imageData ? Math.round(imageData.length / 1024) : 'unknown';
+      logger.info(`Image data size: ~${dataSize}KB, dimensions: ${width}x${height}`);
+      
+      // Create the content object with a unique trace ID
+      const traceId = `trace-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      const contentObject = {
+        type: 'image',
+        imageData: imageData,
+        width: width,
+        height: height,
+        filterValues: filterValues || {},
+        timestamp: timestamp,
+        lastModifiedBy: userId,
+        traceId: traceId
+      };
+      
+      logger.info(`Generated trace ID for tracking: ${traceId}`);
+      
+      // Standard ORM update
+      try {
+        logger.info('Saving image content...');
+        const { data: updateData, error: updateError } = await supabase
+          .from('files')
+          .update({
+            content: contentObject,
+            last_modified: new Date().toISOString()
+          })
+          .eq('id', fileId)
+          .select();
+          
+        if (!updateError) {
+          logger.info('Image save successful!');
+          logger.info('Update result:', updateData);
+          
+          // Verify the update
+          setTimeout(async () => {
+            const { data: verifyData, error: verifyError } = await supabase
+              .from('files')
+              .select('content')
+              .eq('id', fileId)
+              .single();
+              
+            if (verifyError) {
+              logger.error('Error verifying image update:', verifyError);
+            } else if (!verifyData || !verifyData.content) {
+              logger.error('Verification failed: No content found after update!');
+            } else {
+              logger.info('Verification succeeded: Image content is in database');
+            }
+          }, 500);
+          
+          // Reset content loaded flag to allow reloading after save
+          isContentLoadedRef.current = false;
+          
+          logger.info('=== SAVE IMAGE COMPLETE ===');
+          return true;
+        }
+        
+        logger.warn('Standard update failed:', updateError);
+        
+        // Try without last_modified if that column doesn't exist
+        if (updateError.message?.includes('column "last_modified" does not exist')) {
+          logger.info('Trying without last_modified column...');
+          
+          const { data: retryData, error: retryError } = await supabase
+            .from('files')
+            .update({
+              content: contentObject
+            })
+            .eq('id', fileId)
+            .select();
+            
+          if (!retryError) {
+            logger.info('Update without last_modified successful!');
+            
+            // Reset content loaded flag to allow reloading after save
+            isContentLoadedRef.current = false;
+            
+            logger.info('=== SAVE IMAGE COMPLETE ===');
+            return true;
+          }
+          
+          logger.warn('Update without last_modified failed:', retryError);
+        }
+        
+        // If we get here, standard approach failed
+        logger.error('Failed to save image content');
+        return false;
+      } catch (error) {
+        logger.error('Error saving image to database:', error);
+        return false;
+      }
+    } catch (error) {
+      logger.error('Error in saveImageToDatabase:', error);
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Load image from database
+  const loadImageFromDatabase = async (fileId: string): Promise<{
+    imageData: string,
+    width: number,
+    height: number,
+    filterValues?: Record<string, number>
+  } | null> => {
+    if (!fileId || isLoading || isContentLoadedRef.current) return null;
+    
+    setIsLoading(true);
+    try {
+      logger.info('=== IMAGE LOADING START ===');
+      logger.info(`Loading image content for fileId: ${fileId}`);
+      
+      // Fetch file content from database
+      const { data, error } = await supabase
+        .from('files')
+        .select('content, name')
+        .eq('id', fileId)
+        .single();
+      
+      if (error) {
+        logger.error('Error loading image content:', error);
+        return null;
+      }
+      
+      if (!data || !data.content) {
+        logger.info(`No content found for file: ${fileId}`);
+        setIsLoading(false);
+        isContentLoadedRef.current = true;
+        return null;
+      }
+      
+      logger.info(`Found image content for file: ${data.name}`);
+      
+      // Check if it's an image type content
+      if (data.content.type === 'image' && data.content.imageData) {
+        logger.info('Successfully loaded image content');
+        isContentLoadedRef.current = true;
+        
+        return {
+          imageData: data.content.imageData,
+          width: data.content.width || 800,
+          height: data.content.height || 600,
+          filterValues: data.content.filterValues || {}
+        };
+      } else {
+        logger.warn('Content exists but is not image type or has no image data');
+        return null;
+      }
+    } catch (error) {
+      logger.error('Error in loadImageFromDatabase:', error);
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
   return (
     <ImageEditorContext.Provider value={{
       isConnected,
@@ -282,7 +487,11 @@ export const ImageEditorProvider: React.FC<ImageEditorProviderProps> = ({
       sendCropOperation,
       onRemoteImageOperation: onRemoteImageOperationRef.current,
       setOnRemoteImageOperation,
-      connect
+      connect,
+      saveImageToDatabase,
+      loadImageFromDatabase,
+      isSaving,
+      isLoading
     }}>
       {children}
     </ImageEditorContext.Provider>

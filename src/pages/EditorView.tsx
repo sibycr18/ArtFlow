@@ -95,8 +95,8 @@ export default function EditorView() {
             <ImageEditor 
               fileName={file.name} 
               onClose={handleClose}
-              projectId={projectId}
-              fileId={fileId}
+              projectId={projectId!}
+              fileId={fileId!}
               userId={user?.sub || 'anonymous'}
             />
           </ImageEditorProvider>
