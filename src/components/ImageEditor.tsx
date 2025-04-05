@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { 
   ArrowLeft, Download, RotateCcw, RotateCw, ZoomIn, ZoomOut, 
   Maximize2, Minimize2, Crop, Trash2, Undo, Redo, Upload, ChevronDown,
-  RefreshCw
+  RefreshCw, Save
 } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { useImageEditor } from '../contexts/ImageEditorContext';
@@ -16,8 +16,8 @@ interface ImageEditorProps {
 }
 
 const ImageEditor: React.FC<ImageEditorProps> = ({ 
-  fileName, 
-  onClose,
+  fileName = "Untitled Image", 
+  onClose = () => {},
   projectId: propProjectId, 
   fileId: propFileId, 
   userId: propUserId
@@ -33,11 +33,18 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
     sendFilterOperation,
     sendImageUpload,
     sendCropOperation,
-    setOnRemoteImageOperation
+    setOnRemoteImageOperation,
+    saveImageToDatabase,
+    loadImageFromDatabase,
+    isSaving,
+    isLoading
   } = useImageEditor();
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const initialSetupDoneRef = useRef<boolean>(false);
+  const contentAreaRef = useRef<HTMLDivElement>(null);
+  const applyFiltersRef = useRef<(values: Record<string, number>) => void>();
   const [baseCanvas, setBaseCanvas] = useState<HTMLCanvasElement | null>(null);
   const [scale, setScale] = useState(1);
   const [rotation, setRotation] = useState(0);
@@ -62,8 +69,34 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
   const [isFiltersExpanded, setIsFiltersExpanded] = useState(false);
   const [isTransformExpanded, setIsTransformExpanded] = useState(true);
   const [isActionsExpanded, setIsActionsExpanded] = useState(true);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
+  // Calculate scale to fit image in viewport
+  const calculateFitScale = (imageWidth: number, imageHeight: number): number => {
+    if (!contentAreaRef.current) return 1;
+    
+    // Get the available width and height of the content area, accounting for padding
+    const contentArea = contentAreaRef.current;
+    const containerWidth = contentArea.clientWidth - 32; // Subtract padding (16px on each side)
+    const containerHeight = contentArea.clientHeight - 32;
+    
+    // Calculate the scale needed to fit the image in the container
+    const scaleX = containerWidth / imageWidth;
+    const scaleY = containerHeight / imageHeight;
+    
+    // Use the smaller of the two scales to ensure the image fits completely
+    const fitScale = Math.min(scaleX, scaleY, 1); // Don't scale up images that are already small
+    
+    console.log(`Container: ${containerWidth}x${containerHeight}, Image: ${imageWidth}x${imageHeight}, Scale: ${fitScale}`);
+    
+    return fitScale;
+  };
+
+  // Separate setup effect that only runs once
   useEffect(() => {
+    if (initialSetupDoneRef.current) return;
+    initialSetupDoneRef.current = true;
+    
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -103,7 +136,9 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
         }
         
         // Apply all filters from scratch with the updated values
-        applyFilters(newFilterValues);
+        if (applyFiltersRef.current) {
+          applyFiltersRef.current(newFilterValues);
+        }
       }
       else if (operation.type === 'upload') {
         console.log('Received remote image upload');
@@ -171,7 +206,58 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
         img.src = remoteCroppedImageData;
       }
     });
-  }, [setOnRemoteImageOperation]);
+  }, [setOnRemoteImageOperation, filterValues]);
+
+  // Separate effect for initial database loading
+  useEffect(() => {
+    // Only load from database on initial connection
+    if (isConnected && fileId && canvasRef.current) {
+      console.log('Initial image loading from database');
+      loadImageFromDatabase(fileId).then(result => {
+        if (result) {
+          console.log('Loaded image from database:', result);
+          const { imageData, width, height, filterValues: loadedFilterValues } = result;
+          
+          // Create and load the image
+          const img = new Image();
+          img.onload = () => {
+            const canvas = canvasRef.current;
+            const ctx = canvas?.getContext('2d');
+            if (!canvas || !ctx) return;
+            
+            // Set canvas size to match the loaded image dimensions
+            canvas.width = width;
+            canvas.height = height;
+            
+            // Clear canvas
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw image
+            ctx.drawImage(img, 0, 0);
+            setOriginalImage(img);
+            
+            // Apply filter values if available
+            if (loadedFilterValues) {
+              setFilterValues(loadedFilterValues);
+              if (applyFiltersRef.current) {
+                applyFiltersRef.current(loadedFilterValues);
+              }
+            }
+            
+            // Add to history
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            saveToHistory(imageData);
+            
+            // Set scale to fit the image in the viewport
+            setScale(calculateFitScale(width, height));
+          };
+          
+          img.src = imageData;
+        }
+      });
+    }
+  }, [isConnected, fileId, loadImageFromDatabase]);
 
   const saveToHistory = (imageData: ImageData) => {
     setHistory(prev => [...prev.slice(0, historyIndex + 1), imageData]);
@@ -270,6 +356,9 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
 
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         saveToHistory(imageData);
+        
+        // Set scale to fit the image in the viewport
+        setScale(calculateFitScale(img.width, img.height));
         
         // Send image to other users
         sendImageUpload(imageDataUrl);
@@ -455,6 +544,9 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
     const croppedImageDataUrl = canvas.toDataURL('image/png');
     croppedImage.src = croppedImageDataUrl;
     setOriginalImage(croppedImage);
+    
+    // Set scale to fit the cropped image in the viewport
+    setScale(calculateFitScale(cropWidth, cropHeight));
 
     // Reset cropping state
     setIsCropping(false);
@@ -640,6 +732,11 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
     saveToHistory(imageData);
   };
 
+  // Store the applyFilters function in ref
+  useEffect(() => {
+    applyFiltersRef.current = applyFilters;
+  }, [applyFilters]);
+
   // Update a filter value and broadcast the change
   const handleFilterChange = (filterType: string, value: number) => {
     setFilterValues(prev => ({...prev, [filterType]: value}));
@@ -721,6 +818,100 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
     setScale(newScale / 100);
   };
 
+  // Save the current image to database
+  const handleSaveImage = () => {
+    const canvas = canvasRef.current;
+    if (!canvas || !isConnected) return;
+    
+    try {
+      // Get the current image data as base64 string
+      const imageData = canvas.toDataURL('image/png');
+      const width = canvas.width;
+      const height = canvas.height;
+      
+      // Save to database with current filter values
+      saveImageToDatabase(imageData, width, height, filterValues)
+        .then((success) => {
+          if (success) {
+            setSaveStatus('success');
+            setTimeout(() => setSaveStatus('idle'), 3000);
+            
+            // Reload the image from the database after successful save
+            loadImageFromDatabase(fileId).then(result => {
+              if (result) {
+                console.log('Reloaded image after save:', result);
+                const { imageData, width, height, filterValues: loadedFilterValues } = result;
+                
+                // Create and load the image
+                const img = new Image();
+                img.onload = () => {
+                  const canvas = canvasRef.current;
+                  const ctx = canvas?.getContext('2d');
+                  if (!canvas || !ctx) return;
+                  
+                  // Set canvas size to match the loaded image dimensions
+                  canvas.width = width;
+                  canvas.height = height;
+                  
+                  // Clear canvas
+                  ctx.fillStyle = '#ffffff';
+                  ctx.fillRect(0, 0, canvas.width, canvas.height);
+                  
+                  // Draw image
+                  ctx.drawImage(img, 0, 0);
+                  setOriginalImage(img);
+                  
+                  // Apply filter values if available
+                  if (loadedFilterValues) {
+                    setFilterValues(loadedFilterValues);
+                    if (applyFiltersRef.current) {
+                      applyFiltersRef.current(loadedFilterValues);
+                    }
+                  }
+                  
+                  // Add to history
+                  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                  saveToHistory(imageData);
+                  
+                  // Set scale to fit the image in the viewport
+                  setScale(calculateFitScale(width, height));
+                };
+                
+                img.src = imageData;
+              }
+            });
+          } else {
+            setSaveStatus('error');
+            setTimeout(() => setSaveStatus('idle'), 3000);
+          }
+        })
+        .catch((error) => {
+          console.error('Error saving image:', error);
+          setSaveStatus('error');
+          setTimeout(() => setSaveStatus('idle'), 3000);
+        });
+    } catch (error) {
+      console.error('Error getting image data:', error);
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus('idle'), 3000);
+    }
+  };
+
+  // Adjust scale when window is resized
+  useEffect(() => {
+    const handleResize = () => {
+      if (originalImage && canvasRef.current) {
+        setScale(calculateFitScale(canvasRef.current.width, canvasRef.current.height));
+      }
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [originalImage]);
+
+  // Return JSX
   return (
     <div className="fixed inset-0 bg-gradient-to-br from-purple-50 to-blue-50 overflow-hidden">
       <div className="h-screen w-full max-w-[1920px] mx-auto flex flex-col">
@@ -738,15 +929,49 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
                 {fileName}
               </h1>
               <p className="text-sm text-gray-600">
-                Image Editor 
-                {isConnected ? 
-                  <span className="text-green-500 ml-2">● Connected</span> : 
-                  <span className="text-red-500 ml-2">● Disconnected</span>}
+                Image Editor <span className="mx-1">•</span>
+                <span className={isConnected ? "text-green-500" : connectionError ? "text-red-500" : "text-yellow-500"}>
+                  {isConnected ? "Connected" : connectionError ? `Error: ${connectionError}` : "Connecting..."}
+                </span>
               </p>
-              {connectionError && (
-                <p className="text-xs text-red-500">{connectionError}</p>
-              )}
             </div>
+          </div>
+          
+          {/* Add Save Button */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSaveImage}
+              className={`px-4 py-2 rounded-lg text-white flex items-center gap-2 transition-colors ${
+                saveStatus === 'success' 
+                  ? 'bg-green-500 hover:bg-green-600' 
+                  : saveStatus === 'error'
+                    ? 'bg-red-500 hover:bg-red-600'
+                    : 'bg-green-600 hover:bg-green-700'
+              }`}
+              disabled={!isConnected || isSaving}
+            >
+              {isSaving ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Saving...
+                </>
+              ) : saveStatus === 'success' ? (
+                <>
+                  <div className="w-4 h-4 text-white">✓</div>
+                  Saved!
+                </>
+              ) : saveStatus === 'error' ? (
+                <>
+                  <div className="w-4 h-4 text-white">✗</div>
+                  Failed to save
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  Save
+                </>
+              )}
+            </button>
           </div>
         </div>
 
@@ -826,8 +1051,8 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
                   <div className="mt-3">
                     <div className="grid grid-cols-2 gap-2">
                       {[
-                        { icon: RotateCcw, action: () => rotate('left'), label: 'Rotate Left' },
-                        { icon: RotateCw, action: () => rotate('right'), label: 'Rotate Right' },
+                        // { icon: RotateCcw, action: () => rotate('left'), label: 'Rotate Left' },
+                        // { icon: RotateCw, action: () => rotate('right'), label: 'Rotate Right' },
                         { icon: ZoomIn, action: () => zoom(0.1), label: 'Zoom In' },
                         { icon: ZoomOut, action: () => zoom(-0.1), label: 'Zoom Out' },
                         { icon: Crop, action: startCropping, label: 'Crop', active: isCropping }
@@ -923,8 +1148,33 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
                         const canvas = canvasRef.current;
                         const ctx = canvas?.getContext('2d');
                         if (!canvas || !ctx) return;
-                        ctx.clearRect(0, 0, canvas.width, canvas.height);
-                        saveToHistory(ctx.getImageData(0, 0, canvas.width, canvas.height));
+                        
+                        // Clear the canvas with white background
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        
+                        // Create a new blank image to replace the original image
+                        const blankImage = new Image();
+                        blankImage.width = canvas.width;
+                        blankImage.height = canvas.height;
+                        setOriginalImage(blankImage);
+                        
+                        // Reset all filter values
+                        const resetValues = Object.keys(filterValues).reduce((acc, key) => {
+                          acc[key] = 0;
+                          return acc;
+                        }, {} as Record<string, number>);
+                        setFilterValues(resetValues);
+                        
+                        // Save to history
+                        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                        saveToHistory(imageData);
+                        
+                        // Broadcast the cleared canvas to other users
+                        if (sendCropOperation) {
+                          const clearedImageData = canvas.toDataURL('image/png');
+                          sendCropOperation(clearedImageData, canvas.width, canvas.height);
+                        }
                       }}
                       className="w-full px-4 py-2 bg-red-50 hover:bg-red-100 rounded-lg text-red-600 font-medium flex items-center justify-center gap-2"
                     >
@@ -965,24 +1215,40 @@ const ImageEditor: React.FC<ImageEditorProps> = ({
           </div>
 
           {/* Main Content Area */}
-          <div className="flex-1 min-h-0 relative flex items-center justify-center bg-gray-50 p-8">
-            <div className="bg-white shadow-lg rounded-lg border border-purple-100 overflow-hidden h-full w-full flex items-center justify-center relative">
-              <canvas
-                ref={canvasRef}
-                className="max-w-full max-h-full object-contain"
-                style={{
-                  transform: `scale(${scale})`,
-                  transition: 'transform 0.2s ease-in-out',
-                  cursor: isCropping ? 'crosshair' : 'default'
-                }}
-                onMouseDown={handleCanvasMouseDown}
-                onMouseMove={handleCanvasMouseMove}
-                onMouseUp={handleCanvasMouseUp}
-                onMouseLeave={handleCanvasMouseUp}
-              />
-            </div>
+          <div 
+            ref={contentAreaRef}
+            className="flex-1 bg-gray-50 overflow-auto p-4 flex items-center justify-center"
+          >
+            <canvas
+              ref={canvasRef}
+              className={`border border-gray-200 shadow-lg origin-center transition-transform duration-300 ease-in-out ${isCropping ? 'cursor-crosshair' : 'cursor-default'}`}
+              style={{
+                transform: `scale(${scale})`,
+                backgroundColor: '#ffffff'
+              }}
+              onMouseDown={handleCanvasMouseDown}
+              onMouseMove={handleCanvasMouseMove}
+              onMouseUp={handleCanvasMouseUp}
+            />
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: 'none' }}
+              accept="image/*"
+              onChange={handleImageUpload}
+            />
           </div>
         </div>
+
+        {/* Loading Overlay */}
+        {isLoading && (
+          <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="flex flex-col items-center gap-4">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+              <p className="text-gray-600">Loading image...</p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

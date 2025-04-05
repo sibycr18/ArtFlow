@@ -52,9 +52,19 @@ export interface TriangleData extends ShapeData {
 export type DrawingData = BrushData | RectangleData | CircleData | TriangleData;
 
 export interface DrawingHistoryEntry {
-  userId: string;
+  id: string;
+  file_id: string;
+  project_id: string;
+  user_id: string;
+  drawing_data: DrawingData;
   timestamp: number;
-  data: DrawingData;
+  sequence_number: number;
+  created_at: string;
+}
+
+export interface DrawingHistoryResponse {
+  data: DrawingHistoryEntry[] | null;
+  error: any;
 }
 
 export interface DrawingHistory {

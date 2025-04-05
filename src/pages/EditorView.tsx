@@ -72,7 +72,7 @@ export default function EditorView() {
             fileId={fileId!}
             userId={user?.sub || 'anonymous'}
           >
-            <Canvas onClose={handleClose} />
+            <Canvas fileId={fileId!} fileName={file.name} onClose={handleClose} />
           </CanvasProvider>
         );
       case 'document':
@@ -95,8 +95,8 @@ export default function EditorView() {
             <ImageEditor 
               fileName={file.name} 
               onClose={handleClose}
-              projectId={projectId}
-              fileId={fileId}
+              projectId={projectId!}
+              fileId={fileId!}
               userId={user?.sub || 'anonymous'}
             />
           </ImageEditorProvider>

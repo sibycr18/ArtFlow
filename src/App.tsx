@@ -12,6 +12,7 @@ import { SidebarProvider } from './contexts/SidebarContext';
 import { ProjectProvider } from './contexts/ProjectContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import EditorView from './pages/EditorView';
+import CanvasPage from './pages/CanvasPage';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -78,6 +79,9 @@ function AppRoutes() {
                           <Route path="/project/:id" element={<ProjectView />} />
                           <Route path="/project/:projectId/:fileId" element={<EditorView />} />
                           <Route path="/explore" element={<ExplorePage />} />
+                          <Route path="/test" element={<TestCanvas />} />
+                          <Route path="/projects/:projectId" element={<ProjectView />} />
+                          <Route path="/projects/:projectId/files/:fileId" element={<CanvasPage />} />
                           <Route path="*" element={<Navigate to="/" replace />} />
                         </Routes>
                       </main>
