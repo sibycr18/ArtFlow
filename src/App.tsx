@@ -78,7 +78,8 @@ function AppRoutes() {
                           <Route path="/" element={<Dashboard />} />
                           <Route path="/project/:id" element={<ProjectView />} />
                           <Route path="/project/:projectId/:fileId" element={<EditorView />} />
-                          <Route path="/explore" element={<ExplorePage />} />
+                          {/* Temporarily hidden Explore page */}
+                          {/* <Route path="/explore" element={<ExplorePage />} /> */}
                           <Route path="/test" element={<TestCanvas />} />
                           <Route path="/projects/:projectId" element={<ProjectView />} />
                           <Route path="/projects/:projectId/files/:fileId" element={<CanvasPage />} />

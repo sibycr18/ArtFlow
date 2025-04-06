@@ -31,12 +31,13 @@ export default function Sidebar() {
             label="Dashboard"
             isCollapsed={isCollapsed}
           />
-          <NavLink
+          {/* Temporarily hidden Explore page */}
+          {/* <NavLink
             to="/explore"
             icon={Compass}
             label="Explore"
             isCollapsed={isCollapsed}
-          />
+          /> */}
         </nav>
       </div>
     </div>
